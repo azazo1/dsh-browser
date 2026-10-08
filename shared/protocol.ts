@@ -160,10 +160,14 @@ export interface ErrorFrame {
  *
  * `pairing-rejected` 由 dsh 侧发出并转给扩展: 配对令牌对不上时 dsh 会拒绝这条连接,
  * 扩展必须能把原因显示给用户, 否则用户只会看到"连不上"而不知道去填令牌.
+ *
+ * `bound` 由扩展在绑定标签页建立 (tabs.activate / tabs.open) 时发出: 宿主的绑定
+ * 状态只从 hello 与事件里来, 绑定这个动作本身不触发 URL 变化, 不上报的话 browser_status
+ * 会一直显示"绑定标签页: 无".
  */
 export interface EventFrame {
   kind: 'event'
-  event: 'hello' | 'tab-changed' | 'detached' | 'link-ready' | 'link-lost' | 'pairing-rejected'
+  event: 'hello' | 'tab-changed' | 'bound' | 'detached' | 'link-ready' | 'link-lost' | 'pairing-rejected'
   payload: unknown
 }
 

@@ -100,11 +100,13 @@ async function dispatch(method: string, args: Record<string, unknown>): Promise<
       const tabId = Number(args.tabId)
       const tab = await activateTab(tabId)
       boundTabId = tabId
+      notifyBound(tabId)
       return tab
     }
     case 'tabs.open': {
       const tab = await openTab(String(args.url))
       boundTabId = tab.id
+      notifyBound(tab.id)
       return tab
     }
     case 'tabs.close': {
@@ -342,6 +344,11 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, respond: (respo
   }
   return false
 })
+
+/** 绑定建立后告诉宿主: 宿主侧的绑定状态只从 hello 与事件里来, 不上报就永远停在旧值. */
+function notifyBound(tabId: number): void {
+  bridge.send({ kind: 'event', event: 'bound', payload: { tabId } })
+}
 
 // 绑定标签页被关闭时立即清空绑定, 不等下一次调用才发现.
 chrome.tabs.onRemoved.addListener((tabId) => {

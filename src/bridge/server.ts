@@ -539,7 +539,9 @@ export class BridgeServer {
         return
       }
       if (this.live !== socket) return
-      if (frame.event === 'tab-changed' || frame.event === 'detached') {
+      // 'bound' 是绑定建立 (tabs.activate / tabs.open) 的通知, 与 tab-changed (URL 变化,
+      // 快照 token 失效) 和 detached (绑定清空) 一样, 只影响宿主侧的绑定状态展示.
+      if (frame.event === 'tab-changed' || frame.event === 'bound' || frame.event === 'detached') {
         const payload = frame.payload as { tabId?: number }
         this.setState({
           boundTabId: frame.event === 'detached' ? null : (payload.tabId ?? null),

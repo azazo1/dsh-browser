@@ -1434,11 +1434,13 @@ async function dispatch(method, args) {
       const tabId = Number(args.tabId);
       const tab = await activateTab(tabId);
       boundTabId = tabId;
+      notifyBound(tabId);
       return tab;
     }
     case "tabs.open": {
       const tab = await openTab(String(args.url));
       boundTabId = tab.id;
+      notifyBound(tab.id);
       return tab;
     }
     case "tabs.close": {
@@ -1633,6 +1635,9 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   }
   return false;
 });
+function notifyBound(tabId) {
+  bridge.send({ kind: "event", event: "bound", payload: { tabId } });
+}
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (boundTabId === tabId) {
     boundTabId = null;

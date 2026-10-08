@@ -33,6 +33,8 @@ export interface PairingSettings {
   pairingToken?: string
   /** 是否让 dsh 启动一份独立 profile 的 Chrome. */
   launchStandaloneChromeProfile?: boolean
+  /** 是否在插件加载与会话取资源前自动同步扩展产物与连接组件. */
+  installHostAutomatically?: boolean
 }
 
 /**
@@ -61,6 +63,8 @@ export interface PairingCardState extends SettingsFormShell {
   pairingToken: SettingsFieldState
   /** 独立 profile 开关的暂存状态. */
   launchStandaloneChromeProfile: SettingsFieldState
+  /** 自动安装开关的暂存状态. */
+  installHostAutomatically: SettingsFieldState
 }
 
 /** 槽位注册时注入的对外面. */
@@ -86,11 +90,13 @@ export class PairingFormController {
     this.form = new SettingsFormModel(scope, [
       settingsTextField('pairingToken'),
       settingsBooleanField('launchStandaloneChromeProfile'),
+      settingsBooleanField('installHostAutomatically'),
     ])
     this.store = this.form.bind(() => ({
       ...this.form.shell(),
       pairingToken: this.form.field('pairingToken'),
       launchStandaloneChromeProfile: this.form.field('launchStandaloneChromeProfile'),
+      installHostAutomatically: this.form.field('installHostAutomatically'),
     }))
   }
 

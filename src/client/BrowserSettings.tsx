@@ -280,6 +280,32 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
               </div>
               <p style={styles.hint}>{props.t('launchHint')}</p>
             </div>
+            <div style={styles.switchRow}>
+              <div style={styles.switchHead}>
+                <span style={styles.switchLabel}>{props.t('installAutoLabel')}</span>
+                <div style={styles.switchMeta}>
+                  {pairing.installHostAutomatically.overridden && (
+                    <>
+                      <span style={styles.override}>{props.t('overridden')}</span>
+                      <Button
+                        variant="ghost"
+                        disabled={!pairing.writable}
+                        onClick={() => { props.resetField('installHostAutomatically') }}
+                      >
+                        {props.t('reset')}
+                      </Button>
+                    </>
+                  )}
+                  <Switch
+                    checked={pairing.installHostAutomatically.text === 'true'}
+                    disabled={!pairing.writable}
+                    label={props.t('installAutoLabel')}
+                    onChange={(next) => { props.edit('installHostAutomatically', next ? 'true' : 'false') }}
+                  />
+                </div>
+              </div>
+              <p style={styles.hint}>{props.t('installAutoHint')}</p>
+            </div>
             <SettingsValueField
               id="plugin-config-dsh-browser-pairing-token"
               label={props.t('tokenLabel')}

@@ -44,6 +44,8 @@ export type BrowserSettingsKey =
   | 'invalidToken'
   | 'launchLabel'
   | 'launchHint'
+  | 'installAutoLabel'
+  | 'installAutoHint'
   | 'overridden'
   | 'reset'
   | 'save'
@@ -93,6 +95,8 @@ export const zh: Record<BrowserSettingsKey, string> = {
   invalidToken: '这个值不被接受',
   launchLabel: '启动独立 profile 的 Chrome',
   launchHint: '关闭时永远不自行打开 Chrome, 只用扩展已经连上的那个浏览器. 打开后 dsh 会用一份全新的独立 profile 启动 Chrome, 不再复用你日常那个窗口; 那份 profile 没有登录态, 需要单独再加载一次扩展.',
+  installAutoLabel: '自动同步连接组件',
+  installAutoHint: '开启后, 插件每次加载和每个会话开始使用浏览器前, 都会把扩展产物与 native messaging 组件同步到数据目录 (幂等). 插件升级后你只需在 chrome://extensions 里刷新一次扩展; 关闭则要手动回来点"安装连接组件".',
   overridden: '已覆盖',
   reset: '恢复默认',
   save: '保存',
@@ -143,6 +147,8 @@ export const en: Record<BrowserSettingsKey, string> = {
   invalidToken: 'This value is not accepted',
   launchLabel: 'Launch a standalone Chrome profile',
   launchHint: 'Off: never open Chrome; only reuse the browser whose extension is already connected. On: dsh launches a fresh independent profile and will not reuse your daily Chrome. That profile has no login state and needs the extension loaded once.',
+  installAutoLabel: 'Sync connection pieces automatically',
+  installAutoHint: 'On: every plugin load and every session re-syncs the extension build and native messaging pieces into the data directory (idempotent). After a plugin upgrade you only need to reload the extension once in chrome://extensions. Off: click "Install connection pieces" manually.',
   overridden: 'Overridden',
   reset: 'Reset',
   save: 'Save',
