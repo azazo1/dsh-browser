@@ -73,7 +73,7 @@ function render(status: StatusResponse): void {
     pairingState.textContent = 'dsh 已接受配对.'
   } else {
     pairingState.className = 'pairing-state'
-    pairingState.textContent = '把上面的令牌填进 dsh 的 pairingToken 后, 连接会自动恢复.'
+    pairingState.textContent = '展开配对令牌, 复制后填进 dsh 的 pairingToken, 连接会自动恢复.'
   }
   const tokenElement = element('pairing-token')
   // 令牌还没读出来时别把空串渲染成"空白", 那会让人以为令牌是空的.

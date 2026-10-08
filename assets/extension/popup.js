@@ -34,7 +34,7 @@
       pairingState.textContent = "dsh \u5DF2\u63A5\u53D7\u914D\u5BF9.";
     } else {
       pairingState.className = "pairing-state";
-      pairingState.textContent = "\u628A\u4E0A\u9762\u7684\u4EE4\u724C\u586B\u8FDB dsh \u7684 pairingToken \u540E, \u8FDE\u63A5\u4F1A\u81EA\u52A8\u6062\u590D.";
+      pairingState.textContent = "\u5C55\u5F00\u914D\u5BF9\u4EE4\u724C, \u590D\u5236\u540E\u586B\u8FDB dsh \u7684 pairingToken, \u8FDE\u63A5\u4F1A\u81EA\u52A8\u6062\u590D.";
     }
     const tokenElement = element("pairing-token");
     tokenElement.textContent = status.pairingToken === "" ? "\u8BFB\u53D6\u4E2D..." : status.pairingToken;
