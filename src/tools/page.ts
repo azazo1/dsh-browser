@@ -12,12 +12,17 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { formatSnapshot, runBrowser, toIntegerArg } from './shared.js'
 import type { ToolDeps } from './shared.js'
 
-/** 页面工具共用的"结果说明"输出形状. */
+/**
+ * 页面操作类工具共用的输出形状.
+ *
+ * 只有一个 `text`: 工具失败时是抛错并走 harness 的错误通道, 能返回结果就意味着这一步
+ * 执行了, 所以不需要 `ok`. 早先这里多一个 `ok`, 而扩展侧并不返回它, 于是产物里带上
+ * 一个 `undefined`, 被 harness 判为"不是 lossless JSON"而整批拒掉.
+ */
 const ACTION_OUTPUT = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    ok: { type: 'boolean', required: true, description: '这一步是否执行成功' },
     text: { type: 'string', required: true, description: '执行说明' },
   },
 } as const
@@ -105,7 +110,7 @@ export function pageTools(deps: ToolDeps): ToolDefinition[] {
     output: { schema: ACTION_OUTPUT, render: (_args, value) => [{ type: 'text', text: value.text }] },
     execute: async (args, exec) => runBrowser(deps, exec, async (resource) => {
       const result = await resource.call('page.click', { token: args.token, index: args.index }, exec.signal)
-      return { ok: result.ok, text: `${result.note}\n点击完成不代表结果符合预期, 请用 browser_snapshot 确认页面变化.` }
+      return { text: `${result.note}\n点击完成不代表结果符合预期, 请用 browser_snapshot 确认页面变化.` }
     }),
   })
 
@@ -135,7 +140,7 @@ export function pageTools(deps: ToolDeps): ToolDefinition[] {
         text: args.text,
         submit: args.submit === true,
       }, exec.signal)
-      return { ok: result.ok, text: `${result.note}\n请用 browser_snapshot 确认填入与提交的实际效果.` }
+      return { text: `${result.note}\n请用 browser_snapshot 确认填入与提交的实际效果.` }
     }),
   })
 
@@ -152,7 +157,7 @@ export function pageTools(deps: ToolDeps): ToolDefinition[] {
     output: { schema: ACTION_OUTPUT, render: (_args, value) => [{ type: 'text', text: value.text }] },
     execute: async (args, exec) => runBrowser(deps, exec, async (resource) => {
       const result = await resource.call('page.pressKey', { key: args.key }, exec.signal)
-      return { ok: result.ok, text: result.note }
+      return { text: result.note }
     }),
   })
 
@@ -172,7 +177,7 @@ export function pageTools(deps: ToolDeps): ToolDefinition[] {
         direction: args.direction,
         ...(args.amount === undefined ? {} : { amount: toIntegerArg(args.amount, 'amount', 0) }),
       }, exec.signal)
-      return { ok: result.ok, text: result.note }
+      return { text: result.note }
     }),
   })
 
@@ -191,7 +196,6 @@ export function pageTools(deps: ToolDeps): ToolDefinition[] {
         type: 'object',
         additionalProperties: false,
         properties: {
-          ok: { type: 'boolean', required: true, description: '导航是否被接受' },
           url: { type: 'string', required: true, description: '导航后的实际地址' },
           text: { type: 'string', required: true, description: '执行说明' },
         },
@@ -201,7 +205,6 @@ export function pageTools(deps: ToolDeps): ToolDefinition[] {
     execute: async (args, exec) => runBrowser(deps, exec, async (resource) => {
       const result = await resource.call('page.navigate', { url: args.url }, exec.signal)
       return {
-        ok: true,
         url: result.url,
         text: `已导航到 ${result.url}\n标题: ${result.title}\n请用 browser_snapshot 取新页面结构.`,
       }

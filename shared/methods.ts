@@ -38,9 +38,17 @@ export interface MethodContract {
   'page.waitFor': { args: { text: string, timeoutMs?: number }, result: { found: boolean, note: string } }
 }
 
-/** 一次页面操作的结果; 操作完成不代表结果符合预期, 需要重新快照确认. */
+/**
+ * 一次页面操作的结果; 操作完成不代表结果符合预期, 需要重新快照确认.
+ *
+ * 这里**没有 `ok` 字段**, 是有意的: 失败在扩展侧就抛成错误帧 (见 injected.ts 里那个
+ * 判别联合, 由 page.ts 的 unwrap 转成抛出), 所以能走到"返回一个结果"这一步就意味着
+ * 成功. 曾经这里声明过 `ok: true` 而扩展实现没返回它, 结果四个操作工具的产物里多出
+ * 一个 `undefined`, 被 harness 的 lossless-JSON 检查全数拒掉 —— 而类型系统看不出这层
+ * 不一致, 因为两侧由这份声明连接, 实现压根不受它约束. 少一个冗余字段就少一处能漂移
+ * 的地方.
+ */
 export interface PageActionResult {
-  ok: true
   /** 补充说明, 例如点击命中了什么元素. */
   note: string
 }
