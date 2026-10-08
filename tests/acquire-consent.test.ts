@@ -21,7 +21,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { BROWSER_TOOLS, acquireReason, needsBrowserConsent, requestBrowserAccess } from '../src/acquire.ts'
+import { BROWSER_TOOLS, acquireReason, grantFromUserClick, needsBrowserConsent, requestBrowserAccess } from '../src/acquire.ts'
 import { Config } from '../src/config.ts'
 import { BrowserRuntime } from '../src/runtime.ts'
 
@@ -328,5 +328,46 @@ describe('浏览器驱动权的申请与让出', () => {
     expect(acquireReason('browser_click', {}, null)).not.toContain('转交')
     // 工具自带的理由要带进去, 那是模型对"为什么需要浏览器"的说明.
     expect(acquireReason('browser_open', { justification: '查今天的行情' }, null)).toContain('查今天的行情')
+  })
+
+  it('会话 Tab 上的获取跳过审批, 仍拒绝未就绪', async () => {
+    const approval = makeApproval('allowed-once')
+    const { runtime } = makeHarness(approval.service)
+    const { agent } = makeAgent('session-tab')
+    const ready = { ready: true, gaps: [] as string[], guide: '' }
+    const notReady = {
+      ready: false,
+      gaps: ['dsh 侧还没填配对令牌'],
+      guide: '浏览器还没配置好, 请把步骤讲给用户.',
+    }
+
+    const denied = grantFromUserClick({ runtime, agent, setup: notReady })
+    expect(denied.kind).toBe('deny')
+    expect(runtime.holdsBrowser(agent)).toBe(false)
+    expect(approval.asks).toHaveLength(0)
+
+    const allowed = grantFromUserClick({ runtime, agent, setup: ready })
+    expect(allowed.kind).toBe('allow')
+    expect(runtime.holdsBrowser(agent)).toBe(true)
+    // 用户点了按钮就是同意, 不应再走审批通道.
+    expect(approval.asks).toHaveLength(0)
+
+    const again = grantFromUserClick({ runtime, agent, setup: ready })
+    expect(again.kind).toBe('allow')
+    expect(approval.asks).toHaveLength(0)
+  })
+
+  it('会话 Tab 上的获取可以从别的会话接管', () => {
+    const { runtime } = makeHarness(undefined)
+    const { agent: first } = makeAgent('session-a')
+    const { agent: second } = makeAgent('session-b')
+    const ready = { ready: true, gaps: [] as string[], guide: '' }
+
+    expect(grantFromUserClick({ runtime, agent: first, setup: ready }).kind).toBe('allow')
+    expect(runtime.holdsBrowser(first)).toBe(true)
+
+    expect(grantFromUserClick({ runtime, agent: second, setup: ready }).kind).toBe('allow')
+    expect(runtime.holdsBrowser(first)).toBe(false)
+    expect(runtime.holdsBrowser(second)).toBe(true)
   })
 })

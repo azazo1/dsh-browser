@@ -7,11 +7,11 @@
  *      每行的状态有四态 (正常 / 需处理 / 配置错误 / 尚不可知), 映射见 checks.ts.
  *   3. 操作按钮 —— 安装 / 卸载连接组件, 刷新状态.
  *   4. 手动步骤 —— 必须由用户做的事 (在 chrome://extensions 里加载扩展), 写明具体路径并提供复制按钮.
- *   5. 配对令牌 —— 唯一一个需要**填写**的配置项, 就放在手动步骤之后: 它本身就是那些步骤的
- *      最后一步, 连起来读最顺.
+ *   5. 配置表单 —— 独立 profile 开关与配对令牌. 开关改变"用哪个 Chrome"; 令牌是手动步骤的
+ *      最后一步, 放在同一张表单里保存.
  *   6. 细节     —— 路径, 扩展 id, 解释器, 启动参数, 排查时才需要.
  *
- * 除了配对令牌那一项, 页面上的信息都是"Host 观测到的运行时状态", 不是 profile 里的配置值,
+ * 除了表单里那两项, 页面上的信息都是"Host 观测到的运行时状态", 不是 profile 里的配置值,
  * 所以它们刻意不做成输入框 —— 那会让人以为可以改. 样式用内联样式加 dsh 的语义 token,
  * 不写死颜色.
  */
@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import {
-  Button, Input, SettingsForm, SettingsValueField, StateDot,
+  Button, Input, SettingsForm, SettingsValueField, StateDot, Switch,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -99,6 +99,22 @@ const styles = {
   } satisfies CSSProperties,
   detailLabel: { color: 'var(--dsw-alias-label-tertiary)' } satisfies CSSProperties,
   detailValue: { overflowWrap: 'anywhere', fontFamily: 'var(--dsw-font-mono, monospace)' } satisfies CSSProperties,
+  switchRow: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    padding: '12px 0',
+    borderBottom: '0.5px solid var(--dsw-alias-border-l2)',
+  } satisfies CSSProperties,
+  switchHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  } satisfies CSSProperties,
+  switchLabel: { fontSize: 13, fontWeight: 500 } satisfies CSSProperties,
+  switchMeta: { display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 } satisfies CSSProperties,
+  override: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' } satisfies CSSProperties,
 } as const
 
 /** 一行键值展示. */
@@ -238,6 +254,32 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
             onSave={props.save}
             onDiscard={props.discard}
           >
+            <div style={styles.switchRow}>
+              <div style={styles.switchHead}>
+                <span style={styles.switchLabel}>{props.t('launchLabel')}</span>
+                <div style={styles.switchMeta}>
+                  {pairing.launchStandaloneChromeProfile.overridden && (
+                    <>
+                      <span style={styles.override}>{props.t('overridden')}</span>
+                      <Button
+                        variant="ghost"
+                        disabled={!pairing.writable}
+                        onClick={() => { props.resetField('launchStandaloneChromeProfile') }}
+                      >
+                        {props.t('reset')}
+                      </Button>
+                    </>
+                  )}
+                  <Switch
+                    checked={pairing.launchStandaloneChromeProfile.text === 'true'}
+                    disabled={!pairing.writable}
+                    label={props.t('launchLabel')}
+                    onChange={(next) => { props.edit('launchStandaloneChromeProfile', next ? 'true' : 'false') }}
+                  />
+                </div>
+              </div>
+              <p style={styles.hint}>{props.t('launchHint')}</p>
+            </div>
             <SettingsValueField
               id="plugin-config-dsh-browser-pairing-token"
               label={props.t('tokenLabel')}

@@ -67,9 +67,9 @@ export function checks(status: StatusPayload): CheckRow[] {
       key: 'checkLaunch',
       // 这一项讲的是"用哪个浏览器", 本身没有对错: 允许 dsh 自己启动是一种用法, 只用用户
       // 现有的浏览器是另一种.
-      state: status.launchOwnChrome || status.bridgeConnected ? 'done' : 'warning',
-      detail: status.launchOwnChrome
-        ? '允许 dsh 启动自带的独立 profile Chrome (该 profile 需单独加载一次扩展)'
+      state: status.launchStandaloneChromeProfile || status.bridgeConnected ? 'done' : 'warning',
+      detail: status.launchStandaloneChromeProfile
+        ? '会启动独立 profile 的 Chrome, 不复用日常窗口 (该 profile 需单独加载一次扩展)'
         : (status.bridgeConnected
           ? '只用你现有的浏览器 (扩展已连上), 不自行启动 Chrome'
           : '只用你现有的浏览器; 请打开装了扩展的那个 Chrome'),

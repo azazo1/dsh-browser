@@ -35,7 +35,8 @@ const OK_STATUS: StatusPayload = {
   extensionVersion: '0.1.0',
   boundTabId: 1391393307,
   bridgeError: null,
-  launchOwnChrome: false,
+  launchStandaloneChromeProfile: false,
+  holderId: null,
   pairingConfigured: true,
   pairingError: null,
   userScriptsAvailable: true,
@@ -119,9 +120,9 @@ describe('配置页检查清单', () => {
 
   it('允许 dsh 自行启动时, 还没连上不算问题', () => {
     // 这条路本来就是"先启动再连接", 若算问题会让它看起来永远没就绪.
-    const status = withPatch({ bridgeConnected: false, launchOwnChrome: true })
+    const status = withPatch({ bridgeConnected: false, launchStandaloneChromeProfile: true })
     expect(stateOf(status, 'checkLaunch')).toBe('done')
-    expect(stateOf(withPatch({ bridgeConnected: false, launchOwnChrome: false }), 'checkLaunch')).toBe('warning')
+    expect(stateOf(withPatch({ bridgeConnected: false, launchStandaloneChromeProfile: false }), 'checkLaunch')).toBe('warning')
   })
 
   it('未连上桥时, 依赖握手结果的那一行必须给未知而不是绿色', () => {

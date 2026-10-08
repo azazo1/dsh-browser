@@ -31,8 +31,8 @@ export interface SetupInput {
   pairingError: string | null
   /** 扩展当前是否连着桥 (也就是"现在能不能立刻用上"). */
   bridgeConnected: boolean
-  /** 是否允许 dsh 启动它自己那份独立 profile 的 Chrome. */
-  launchOwnChrome: boolean
+  /** 是否启动 dsh 自己那份独立 profile 的 Chrome. */
+  launchStandaloneChromeProfile: boolean
 }
 
 /** 就绪判定结果. */
@@ -69,7 +69,7 @@ export function setupGaps(input: SetupInput): string[] {
   }
   // "还没连上"只有在**没有别的路可走**时才算缺陷: 允许启动自带 Chrome 的情况下, 先启动再连接
   // 就是正常的流程, 若也算缺陷, 那条路会被自己的就绪检查挡住而永远走不通.
-  if (!input.bridgeConnected && !input.launchOwnChrome) {
+  if (!input.bridgeConnected && !input.launchStandaloneChromeProfile) {
     gaps.push('扩展还没连上来: 需要在你自己的 Chrome 里打开这个扩展 (它装在哪个 Chrome 就打开哪个), 并确认它处于启用状态')
   }
   return gaps
@@ -108,7 +108,7 @@ export function setupGuide(gaps: readonly string[], input: SetupInput): string {
       '   把令牌粘贴回 dsh 的 dsh-browser 配置页里的 pairingToken 字段并保存; ',
       '   扩展会自动重连, 面板上会显示「dsh 已接受配对」.',
     )
-  } else if (!input.bridgeConnected && !input.launchOwnChrome) {
+  } else if (!input.bridgeConnected && !input.launchStandaloneChromeProfile) {
     lines.push('3. 打开你安装了该扩展的那个 Chrome 并让它保持运行, 扩展会自动连上来.')
   }
   lines.push(

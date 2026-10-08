@@ -71,7 +71,7 @@ export interface BrowserStatus {
   /** 浏览器求值所需的开关是否已打开; null 表示扩展没连上, 状态未知. */
   userScriptsAvailable: boolean | null
   /** 是否允许 dsh 启动它自己那份独立 profile 的 Chrome. */
-  launchOwnChrome: boolean
+  launchStandaloneChromeProfile: boolean
   /** dsh 侧是否已经配置了配对令牌. */
   pairingConfigured: boolean
   /** 握手因配对失败被拒时的原因; null 表示没有发生过. */
@@ -93,28 +93,28 @@ export interface BrowserStatus {
  *
  * 三种结果而不是"启动/不启动"两态, 因为第三种情况必须能说出理由:
  *
- *   - `reuse`: 扩展已经连着桥, 说明某个浏览器里已经装好并启用了扩展 —— 就用它, 绝不能再
- *     spawn 一个. 再起一个空 profile 的窗口只会打断用户, 而且那份 profile 里没有扩展,
- *     对任务毫无帮助.
- *   - `launch`: 没连上, 而且用户明确允许 dsh 启动它自带的那份 Chrome.
- *   - `refuse`: 没连上, 也不允许自行启动. 这时必须说清"下一步该做什么", 因为用户能做的
- *     事情(打开自己的 Chrome / 打开 launchOwnChrome)与"什么都不做等重试"完全不同.
+ *   - `launch`: 用户打开了独立 profile 开关. 这是一份与日常 Chrome 隔离的环境, 即使扩展
+ *     已经在用户自己的浏览器里连着, 也不复用那个窗口 —— 打开这个开关就是选择另一份 profile.
+ *   - `reuse`: 没开独立 profile, 且扩展已经连着桥. 这时用的就是用户日常那个 Chrome.
+ *   - `refuse`: 没开独立 profile, 也没连上. 这时必须说清"下一步该做什么", 因为用户能做的
+ *     事情(打开自己的 Chrome / 打开 launchStandaloneChromeProfile)与"什么都不做等重试"完全不同.
  *
  * @param input 判定输入.
  * @param input.bridgeConnected 扩展是否已连上桥.
- * @param input.launchOwnChrome 是否允许启动 dsh 自带的 Chrome.
+ * @param input.launchStandaloneChromeProfile 是否启动 dsh 自带的独立 profile Chrome.
  * @returns 决策结果.
  */
-export function launchDecision(input: { bridgeConnected: boolean, launchOwnChrome: boolean }):
+export function launchDecision(input: { bridgeConnected: boolean, launchStandaloneChromeProfile: boolean }):
   { kind: 'reuse' } | { kind: 'launch' } | { kind: 'refuse', reason: string } {
+  // 独立 profile 优先: 这个开关的语义就是"不要用用户日常那个 Chrome".
+  if (input.launchStandaloneChromeProfile) return { kind: 'launch' }
   if (input.bridgeConnected) return { kind: 'reuse' }
-  if (input.launchOwnChrome) return { kind: 'launch' }
   return {
     kind: 'refuse',
-    reason: '扩展还没有连上来, 而本插件被配置为不自行启动 Chrome (launchOwnChrome 未打开). '
+    reason: '扩展还没有连上来, 而本插件被配置为不自行启动 Chrome (launchStandaloneChromeProfile 未打开). '
       + '这通常意味着需要用户打开他自己的那个 Chrome —— 扩展装在哪个 Chrome 里, 就打开哪个, '
       + '并确认它在 chrome://extensions 里是启用状态; 扩展连上来之后重试即可. '
-      + '如果本来就打算让 dsh 用它自己那份独立 profile 的 Chrome, 请打开配置里的 launchOwnChrome; '
+      + '如果本来就打算让 dsh 用它自己那份独立 profile 的 Chrome, 请打开配置里的 launchStandaloneChromeProfile; '
       + '注意那份 profile 需要用户单独加载一次扩展, 否则同样连不上.',
   }
 }
@@ -305,7 +305,7 @@ export class BrowserRuntime {
   /**
    * 把驱动权授予一个会话; 若原本属于别人, 则从对方手上收回.
    *
-   * 调用前必须已经取得用户同意 (由审批钩子负责), 本方法不自行判断.
+   * 调用前必须已经取得用户同意 (审批钩子或会话 Tab 上的点击), 本方法不自行判断.
    *
    * @param agent 要授予的会话.
    */
@@ -359,7 +359,7 @@ export class BrowserRuntime {
       pairingConfigured: status.pairingConfigured,
       pairingError: status.pairingError,
       bridgeConnected: status.bridgeConnected,
-      launchOwnChrome: this.config.launchOwnChrome.get(),
+      launchStandaloneChromeProfile: this.config.launchStandaloneChromeProfile.get(),
     })
   }
 
@@ -412,7 +412,7 @@ export class BrowserRuntime {
       bridgeConnected: bridgeState.connected,
       extensionVersion: bridgeState.extensionVersion,
       userScriptsAvailable: bridgeState.userScriptsAvailable,
-      launchOwnChrome: this.config.launchOwnChrome.get(),
+      launchStandaloneChromeProfile: this.config.launchStandaloneChromeProfile.get(),
       pairingConfigured: this.config.pairingToken.get() !== '',
       pairingError: bridgeState.pairingError,
       boundTabId: bridgeState.boundTabId,
@@ -543,10 +543,10 @@ export class BrowserRuntime {
     const bridgeConnected = await this.waitForBridge(signal, HANDSHAKE_GRACE_MS)
     const decision = launchDecision({
       bridgeConnected,
-      launchOwnChrome: this.config.launchOwnChrome.get(),
+      launchStandaloneChromeProfile: this.config.launchStandaloneChromeProfile.get(),
     })
     if (decision.kind === 'reuse') {
-      this.ctx.logger.info('dsh-browser: 扩展已连接, 复用用户现有的浏览器, 不再启动新的 Chrome')
+      this.ctx.logger.info('dsh-browser: 扩展已连接, 复用用户现有的浏览器, 不启动独立 profile')
       return
     }
     if (decision.kind === 'refuse') throw new BrowserUnavailableError(decision.reason)

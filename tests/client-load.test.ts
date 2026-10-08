@@ -91,6 +91,7 @@ function stubRequire(name: string): unknown {
       Button: stub,
       Input: stub,
       StateDot: stub,
+      Switch: stub,
       SettingsForm: stub,
       SettingsValueField: stub,
       // 表单模型与字段规格在 apply 期间就会被构造, 所以桩必须真的提供它们.
@@ -302,8 +303,9 @@ describe('Client bundle 的加载演练', () => {
     expect(module.inject).toContain('locale')
   })
 
-  it('父级先声明槽位时: apply 不抛错, 并注册了设置页与字典', () => {
+  it('父级先声明槽位时: apply 不抛错, 并注册了设置页, 会话 Tab 与字典', () => {
     declareSlot('plugins.bundle.config')
+    declareSlot('conversation.view')
     const registration = evaluateBundle()
     const module = registration.factory(stubRequire) as { apply: (ctx: Context) => void }
     const { ctx, dispose } = makeContext()
@@ -327,6 +329,8 @@ describe('Client bundle 的加载演练', () => {
       // 此时还不该有注册 (槽位未声明).
       expect(slotCalls).toHaveLength(0)
       declareSlot('plugins.bundle.config')
+      expect(slotCalls).toHaveLength(1)
+      declareSlot('conversation.view')
     } finally {
       dispose()
     }
@@ -335,6 +339,7 @@ describe('Client bundle 的加载演练', () => {
 
   it('inject 面里的 t 函数可用', () => {
     declareSlot('plugins.bundle.config')
+    declareSlot('conversation.view')
     const registration = evaluateBundle()
     const module = registration.factory(stubRequire) as { apply: (ctx: Context) => void }
     const { ctx, dispose } = makeContext()
@@ -343,7 +348,8 @@ describe('Client bundle 的加载演练', () => {
     } finally {
       dispose()
     }
-    const inject = slotCalls[0]?.options['inject'] as (() => { t: (key: string) => string }) | undefined
+    const settings = slotCalls.find(call => call.options['name'] === 'plugins.bundle.config')
+    const inject = settings?.options['inject'] as (() => { t: (key: string) => string }) | undefined
     expect(typeof inject).toBe('function')
     const face = inject?.()
     expect(typeof face?.t).toBe('function')
@@ -351,19 +357,41 @@ describe('Client bundle 的加载演练', () => {
   })
 })
 
-/** 断言设置页与字典都按预期注册了. */
-function assertRegistrationShape(): void {
-  expect(localeRegistrations).toHaveLength(1)
-  expect(localeRegistrations[0]?.namespace).toBe('settings.dsh-browser')
-  const dictionaries = localeRegistrations[0]?.dictionaries ?? {}
-  // 中英两份字典必须键集一致, 否则某个语言下会出现 undefined.
+/**
+ * 找到某个槽位的注册.
+ *
+ * @param name 槽位名.
+ * @returns 对应的一次注册.
+ */
+function slotNamed(name: string): SlotRegisterCall | undefined {
+  return slotCalls.find(call => call.options['name'] === name)
+}
+
+/**
+ * 断言某份字典中英键集一致.
+ *
+ * @param namespace 命名空间.
+ */
+function assertDictionary(namespace: string): void {
+  const registration = localeRegistrations.find(item => item.namespace === namespace)
+  expect(registration, `缺少 ${namespace} 字典`).toBeDefined()
+  const dictionaries = registration?.dictionaries ?? {}
   expect(Object.keys(dictionaries['zh'] ?? {}).length).toBeGreaterThan(0)
   expect(Object.keys(dictionaries['zh'] ?? {}).sort()).toEqual(Object.keys(dictionaries['en'] ?? {}).sort())
+}
 
-  expect(slotCalls).toHaveLength(1)
-  const call = slotCalls[0]
-  expect(call?.options['name']).toBe('plugins.bundle.config')
-  // keyed slot 的键必须是包名.
-  expect(call?.options['key']).toBe('dsh-browser')
-  expect(typeof call?.component).toBe('function')
+/** 断言设置页, 会话 Tab 与字典都按预期注册了. */
+function assertRegistrationShape(): void {
+  expect(localeRegistrations).toHaveLength(2)
+  assertDictionary('settings.dsh-browser')
+  assertDictionary('dsh-browser.tab')
+
+  expect(slotCalls).toHaveLength(2)
+  const settings = slotNamed('plugins.bundle.config')
+  expect(settings?.options['key']).toBe('dsh-browser')
+  expect(typeof settings?.component).toBe('function')
+
+  const tab = slotNamed('conversation.view')
+  expect(tab?.options['id']).toBe('dsh-browser')
+  expect(typeof tab?.component).toBe('function')
 }

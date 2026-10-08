@@ -22,7 +22,7 @@ const READY: SetupInput = {
   pairingConfigured: true,
   pairingError: null,
   bridgeConnected: true,
-  launchOwnChrome: false,
+  launchStandaloneChromeProfile: false,
 }
 
 /**
@@ -74,7 +74,7 @@ describe('就绪判定', () => {
   })
 
   it('扩展没连上但允许自行启动 -> 也算就绪 (有可走的路)', () => {
-    const input = withPatch({ bridgeConnected: false, launchOwnChrome: true })
+    const input = withPatch({ bridgeConnected: false, launchStandaloneChromeProfile: true })
     // 这一条很关键: 允许启动自带 Chrome 时, "还没连上"就是正常的第一步, 不该当成没配好
     // 而拒绝 —— 那会让这条路径永远走不通.
     expect(evaluateSetup(input).ready).toBe(true)

@@ -1,5 +1,5 @@
 /**
- * 配对令牌的编辑表单.
+ * 插件配置卡片上的编辑表单 (配对令牌与独立 profile 开关).
  *
  * 为什么必须自己接这一层: `plugins.bundle.config` 槽**不会**拿到框架给的 `form` 助手 ——
  * 对比一下就清楚, `plugins.item` 与 `plugins.row.config` 的 owner props 里都有 `form`, 而
@@ -17,6 +17,7 @@
 import { SettingsFormModel, settingsTextField } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ENTRY_ID } from './entry.js'
 import type {
+  SettingsFieldSpec,
   SettingsFieldState,
   SettingsFormActions,
   SettingsFormScope,
@@ -30,12 +31,36 @@ export { ENTRY_ID } from './entry.js'
 export interface PairingSettings {
   /** 扩展生成、由用户抄过来的配对令牌. */
   pairingToken?: string
+  /** 是否让 dsh 启动一份独立 profile 的 Chrome. */
+  launchStandaloneChromeProfile?: boolean
+}
+
+/**
+ * 布尔字段的暂存规格.
+ *
+ * 官方字段控件只有文本 / 数字 / 密文, 开关要自绘, 但仍走同一套草稿模型, 保存时才写入.
+ *
+ * @param field 字段名.
+ * @returns 字段规格.
+ */
+function settingsBooleanField(field: string): SettingsFieldSpec {
+  return {
+    field,
+    format: (value) => (value === true ? 'true' : 'false'),
+    parse: (text) => {
+      if (text === 'true') return { kind: 'set', value: true }
+      if (text === 'false') return { kind: 'set', value: false }
+      return undefined
+    },
+  }
 }
 
 /** 卡片渲染需要的状态. */
 export interface PairingCardState extends SettingsFormShell {
   /** 令牌字段的暂存状态. */
   pairingToken: SettingsFieldState
+  /** 独立 profile 开关的暂存状态. */
+  launchStandaloneChromeProfile: SettingsFieldState
 }
 
 /** 槽位注册时注入的对外面. */
@@ -58,10 +83,14 @@ export class PairingFormController {
     // 用标准文本字段而不是密文字段: 这个值需要**核对**. 用户从扩展面板抄一长串过来, 若界面上
     // 看不到已保存的值, 出现不一致时他无从判断是自己抄错了还是别的问题. 而密文字段的语义是
     // "留空即保持原值", 也就无法清空令牌 —— 需要撤销授权时反而做不到.
-    this.form = new SettingsFormModel(scope, [settingsTextField('pairingToken')])
+    this.form = new SettingsFormModel(scope, [
+      settingsTextField('pairingToken'),
+      settingsBooleanField('launchStandaloneChromeProfile'),
+    ])
     this.store = this.form.bind(() => ({
       ...this.form.shell(),
       pairingToken: this.form.field('pairingToken'),
+      launchStandaloneChromeProfile: this.form.field('launchStandaloneChromeProfile'),
     }))
   }
 

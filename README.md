@@ -155,12 +155,12 @@ dsh 与扩展之间用一条配对令牌互相确认, 没配对之前浏览器�
 默认**不自行启动 Chrome**, 只用扩展已经连上的那个浏览器 —— 也就是用户在自己日常 Chrome 里加载了扩展的那一个.
 那份 profile 有用户的登录态, 也最不容易引起风控注意.
 
-| launchOwnChrome | 行为 |
+| launchStandaloneChromeProfile | 行为 |
 |---|---|
 | `false` (默认) | 永不自行打开 Chrome. 扩展没连上时, 工具会说明"请打开装了扩展的那个 Chrome" |
-| `true` | 允许 dsh 用一份**全新的独立 profile** 启动 Chrome. 注意那份 profile 里**不会**自动带上扩展, 需要用户在那个窗口里单独加载一次 |
+| `true` | dsh 用一份**全新的独立 profile** 启动 Chrome, **不复用**日常那个窗口. 那份 profile 里**不会**自动带上扩展, 需要单独加载一次 |
 
-打开 `launchOwnChrome` 的代价值得说清楚: 一份全新的 profile **没有**用户的登录态与历史, 而这套方案原本要避免的正是"看起来像个新环境".
+打开 `launchStandaloneChromeProfile` 的代价值得说清楚: 一份全新的 profile **没有**用户的登录态与历史, 而这套方案原本要避免的正是"看起来像个新环境". 这个开关可以在插件配置页直接拨.
 
 ## 没配好之前会发生什么
 
@@ -200,6 +200,9 @@ dsh 与扩展之间用一条配对令牌互相确认, 没配对之前浏览器�
 | 会话结束或被切走 | 驱动权自动回到无人持有 |
 | `browser_release` | 主动交出, 不必等会话结束 |
 
+会话页有一个「浏览器」Tab, 可以看清现在归谁, 并把驱动权交给本会话或从本会话释放.
+那里的"获取"等于用户本人同意, 不会再弹审批; 链路还没配好时仍然会拒绝.
+
 `browser_status` 不占用浏览器, 所以不需要申请 —— 它也是第二个会话在申请之前查看"现在归谁"的入口.
 
 申请走的是 harness 标准的审批通道 (同一个应答者, 同样在会话日志里留 `approval/asked` 与
@@ -223,9 +226,10 @@ dsh 与扩展之间用一条配对令牌互相确认, 没配对之前浏览器�
     extraArgs: []
     # 会话第一次使用浏览器前是否征求用户同意 (即"申请"). 默认开启.
     askOnAcquire: true
-    # 是否允许 dsh 启动它自己那份独立 profile 的 Chrome. 默认关闭.
+    # 是否启动 dsh 自己那份独立 profile 的 Chrome. 默认关闭.
     # 关闭时插件永远不会自行打开 Chrome, 只用扩展已经连上的那个浏览器.
-    launchOwnChrome: false
+    # 打开后不再复用日常那个 Chrome, 始终启动独立 profile.
+    launchStandaloneChromeProfile: false
     # 与浏览器扩展配对的令牌; 从扩展弹出面板复制过来. 留空则浏览器操作会被拒绝.
     pairingToken: 在这里填扩展面板里显示的令牌
     # 插件加载时是否自动写 native messaging 清单. 默认关闭.
@@ -324,7 +328,7 @@ Chrome 自带的打包器仍然可用 (`--pack-extension` 没有被禁, 被禁�
 
 ## 已知限制
 
-- **默认不自行启动 Chrome.** 只用扩展已经连上的那个浏览器; 需要独立 profile 时打开 `launchOwnChrome`, 但那份 profile 没有用户的登录态.
+- **默认不自行启动 Chrome.** 只用扩展已经连上的那个浏览器; 需要独立 profile 时打开 `launchStandaloneChromeProfile`, 但那份 profile 没有用户的登录态.
 - **只支持 Google Chrome.** Chromium / Edge / Brave 的 native messaging 目录各不相同, 没有做探测.
 - **页面在 iframe 里的内容取不到.** 快照只覆盖主框架.
 - **文件上传靠内容重建, 不是真实路径.** 浏览器不允许脚本给 `input[type=file]` 指派磁盘路径, 所以 `browser_upload` 是把宿主读到的字节在页面里重建成 `File` 再装进去; 单次上限 24 MiB, 且文件输入框只能按选择器定位 (它通常是隐藏的, 不在快照编号表里).

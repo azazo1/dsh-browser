@@ -66,6 +66,7 @@
     "@deepseek-ai/dsh-browser-use": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-locale": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-store": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-plugin-manager": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-renderer": ">=0.2.0-rc.2 <0.3.0",
@@ -98,7 +99,8 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-plugin-manager"
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-conversation"
       ],
       "external": [
         "@deepseek-ai/dsh-client-store",

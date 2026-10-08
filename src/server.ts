@@ -12,15 +12,21 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent'
 import type { StatusPayload } from '../shared/status.js'
+import { grantFromUserClick } from './acquire.js'
 import type { BrowserRuntime } from './runtime.js'
 import { uninstallHost } from './native-host/install.js'
 
 /** 本插件 HTTP 接口的前缀. */
 export const API_PREFIX = '/dsh-browser/api'
 
-/** 请求体上限: 这些接口只收空对象, 给足余量即可. */
+/** 请求体上限: 这些接口只收空对象或一个 sessionId, 给足余量即可. */
 const MAX_BODY_BYTES = 8 * 1024
+
+/** 会话 id 白名单, 与 dsh-plugin-chrome 同一条规则. */
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/u
 
 /** dsh 的 connection 服务里我们用到的那一点. */
 interface ConnectionGuard {
@@ -38,13 +44,51 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.end(data)
 }
 
-/** 读完请求体 (这些接口只需要确认它是个空对象). */
+/** 读完请求体 (安装 / 卸载只需要确认它不太大). */
 async function drainBody(req: IncomingMessage): Promise<void> {
   let total = 0
   for await (const chunk of req) {
     total += (chunk as Buffer).length
     if (total > MAX_BODY_BYTES) throw new Error('请求体过大')
   }
+}
+
+/** 读一个有界 JSON 对象. */
+async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = []
+  let total = 0
+  for await (const chunk of req) {
+    const buffer = Buffer.from(chunk as Buffer)
+    total += buffer.length
+    if (total > MAX_BODY_BYTES) throw new Error('请求体过大')
+    chunks.push(buffer)
+  }
+  if (chunks.length === 0) return {}
+  const text = Buffer.concat(chunks).toString('utf8')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text) as unknown
+  } catch {
+    throw new Error('请求体不是合法 JSON')
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('请求体必须是 JSON 对象')
+  }
+  return parsed as Record<string, unknown>
+}
+
+/**
+ * 从请求体取出会话 id.
+ *
+ * @param body JSON 对象.
+ * @returns 合法的会话 id.
+ */
+function sessionIdOf(body: Record<string, unknown>): string {
+  const sessionId = body['sessionId']
+  if (typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) {
+    throw new Error('sessionId 不合法')
+  }
+  return sessionId
 }
 
 /** 把运行时的状态整理成配置页需要的形状. */
@@ -68,7 +112,8 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
     userScriptsAvailable: status.userScriptsAvailable,
     boundTabId: status.boundTabId,
     bridgeError: status.bridgeError,
-    launchOwnChrome: status.launchOwnChrome,
+    launchStandaloneChromeProfile: status.launchStandaloneChromeProfile,
+    holderId: status.holderId,
     pairingConfigured: status.pairingConfigured,
     pairingError: status.pairingError,
     launchArgs: status.launchArgs,
@@ -121,6 +166,38 @@ export function registerApi(ctx: Context, runtime: BrowserRuntime): void {
         await drainBody(req)
         await uninstallHost(runtime.paths)
         ctx.logger.info('dsh-browser: 连接组件已卸载')
+        sendJson(res, 200, await collect(runtime))
+        return
+      }
+      if (req.method === 'POST' && path === `${API_PREFIX}/acquire`) {
+        const sessionId = sessionIdOf(await readJsonBody(req))
+        const agent = ctx.agents.get(sessionId as Agent['id'])
+        if (agent === undefined) {
+          sendJson(res, 404, { error: '这个会话没有活着的 agent, 无法授予驱动权' })
+          return
+        }
+        const decision = grantFromUserClick({
+          runtime,
+          agent,
+          setup: await runtime.setup(),
+        })
+        if (decision.kind === 'deny') {
+          sendJson(res, 409, { error: decision.reason })
+          return
+        }
+        ctx.logger.info(`dsh-browser: 用户在会话 Tab 把驱动权交给 ${agent.id}`)
+        sendJson(res, 200, await collect(runtime))
+        return
+      }
+      if (req.method === 'POST' && path === `${API_PREFIX}/release`) {
+        const sessionId = sessionIdOf(await readJsonBody(req))
+        const agent = ctx.agents.get(sessionId as Agent['id'])
+        if (agent === undefined) {
+          sendJson(res, 404, { error: '这个会话没有活着的 agent, 无法释放驱动权' })
+          return
+        }
+        const released = runtime.release(agent)
+        ctx.logger.info(`dsh-browser: 用户在会话 Tab ${released ? '释放了' : '尝试释放'} ${agent.id} 的驱动权`)
         sendJson(res, 200, await collect(runtime))
         return
       }

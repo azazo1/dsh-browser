@@ -45,7 +45,7 @@ export interface Config {
    * **不会**自动带上扩展, 需要用户在那个窗口里单独加载一次, 否则桥永远连不上 —— 那正是"白弹
    * 一个窗口然后失败"的来源.
    */
-  launchOwnChrome: Volatile<boolean>
+  launchStandaloneChromeProfile: Volatile<boolean>
   /**
    * 与浏览器扩展配对的令牌.
    *
@@ -96,7 +96,7 @@ export const Config = Schema.object({
   dataDir: Schema.string().volatile(),
   extraArgs: Schema.array(Schema.string()).default([]).volatile(),
   askOnAcquire: Schema.boolean().default(true).volatile(),
-  launchOwnChrome: Schema.boolean().default(false).volatile(),
+  launchStandaloneChromeProfile: Schema.boolean().default(false).volatile(),
   pairingToken: Schema.string().default('').volatile(),
   installHostAutomatically: Schema.boolean().default(false).volatile(),
 })

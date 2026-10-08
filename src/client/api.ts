@@ -6,8 +6,9 @@
  * Chrome 有没有找到, 连接组件装没装, 扩展连上没有, 以及扩展产物落在哪个目录.
  * 这些都不是 profile 里的配置项, 放在表单里也不合适.
  *
- * 所有写操作 (安装 / 卸载连接组件) 也走同一组接口, 由 Host 侧执行并重新回报状态,
- * 因此页面上看到的状态始终是 Host 的真实观测, 不是前端的乐观猜测.
+ * 所有写操作 (安装 / 卸载连接组件, 以及会话 Tab 上的获取 / 释放) 也走同一组接口,
+ * 由 Host 侧执行并重新回报状态, 因此页面上看到的状态始终是 Host 的真实观测,
+ * 不是前端的乐观猜测.
  */
 
 import type { StatusPayload } from '../../shared/status.js'
@@ -51,4 +52,24 @@ export async function installHost(): Promise<StatusPayload> {
 /** 卸载连接组件, 返回卸载后的状态. */
 export async function uninstallHost(): Promise<StatusPayload> {
   return request<StatusPayload>('/uninstall', { method: 'POST', body: '{}' })
+}
+
+/**
+ * 把浏览器驱动权交给指定会话. 这是用户本人在会话 Tab 里点的, 不再弹审批.
+ *
+ * @param sessionId 当前会话 id.
+ * @returns 授予后的状态.
+ */
+export async function acquireBrowser(sessionId: string): Promise<StatusPayload> {
+  return request<StatusPayload>('/acquire', { method: 'POST', body: JSON.stringify({ sessionId }) })
+}
+
+/**
+ * 若本会话持有驱动权则释放.
+ *
+ * @param sessionId 当前会话 id.
+ * @returns 释放后的状态.
+ */
+export async function releaseBrowser(sessionId: string): Promise<StatusPayload> {
+  return request<StatusPayload>('/release', { method: 'POST', body: JSON.stringify({ sessionId }) })
 }

@@ -199,3 +199,22 @@ export async function requestBrowserAccess(input: AcquireInput): Promise<Acquire
   input.runtime.grant(input.agent)
   return { kind: 'allow' }
 }
+
+/**
+ * 用户在会话 Tab 里点了"获取": 这本身就是同意, 不再走审批弹窗.
+ *
+ * 仍要检查就绪: 没配好时授予一份用不了的驱动权, 只会让界面看起来"已经拿到"而工具全失败.
+ *
+ * @param input 授予输入.
+ * @returns 允许或带原因的拒绝.
+ */
+export function grantFromUserClick(input: {
+  runtime: BrowserRuntime
+  agent: Agent
+  setup: SetupStatus
+}): AcquireDecision {
+  if (input.runtime.holdsBrowser(input.agent)) return { kind: 'allow' }
+  if (!input.setup.ready) return { kind: 'deny', reason: input.setup.guide }
+  input.runtime.grant(input.agent)
+  return { kind: 'allow' }
+}

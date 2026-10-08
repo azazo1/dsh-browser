@@ -95,27 +95,25 @@ describe('插件加载即发布桥地址', () => {
 })
 
 describe('该用哪个浏览器', () => {
-  it('扩展已连接时复用现有浏览器, 绝不启动新的', async () => {
+  it('未开独立 profile 且扩展已连接时, 复用现有浏览器', async () => {
     const { launchDecision } = await import('../src/runtime.ts')
-    // 这一条是硬要求: 用户把扩展装在自己日常 Chrome 里时, 再起一个空 profile 的窗口
-    // 只会打断他, 而且那份 profile 里没有扩展, 对任务毫无帮助.
-    expect(launchDecision({ bridgeConnected: true, launchOwnChrome: false })).toEqual({ kind: 'reuse' })
-    // 即使允许自行启动, 已经连上了也不该再起 —— 复用优先.
-    expect(launchDecision({ bridgeConnected: true, launchOwnChrome: true })).toEqual({ kind: 'reuse' })
+    // 用户把扩展装在自己日常 Chrome 里时, 再起一个空 profile 的窗口只会打断他.
+    expect(launchDecision({ bridgeConnected: true, launchStandaloneChromeProfile: false })).toEqual({ kind: 'reuse' })
   })
 
-  it('未连接且允许自行启动时才启动', async () => {
+  it('打开独立 profile 时始终启动, 不复用日常 Chrome', async () => {
     const { launchDecision } = await import('../src/runtime.ts')
-    expect(launchDecision({ bridgeConnected: false, launchOwnChrome: true })).toEqual({ kind: 'launch' })
+    expect(launchDecision({ bridgeConnected: true, launchStandaloneChromeProfile: true })).toEqual({ kind: 'launch' })
+    expect(launchDecision({ bridgeConnected: false, launchStandaloneChromeProfile: true })).toEqual({ kind: 'launch' })
   })
 
   it('未连接且不允许自行启动时明确拒绝, 并说清下一步', async () => {
     const { launchDecision } = await import('../src/runtime.ts')
-    const decision = launchDecision({ bridgeConnected: false, launchOwnChrome: false })
+    const decision = launchDecision({ bridgeConnected: false, launchStandaloneChromeProfile: false })
     // 默认配置就是这一种. 拒绝的理由必须可执行: 用户能做的两件事与"干等重试"完全不同.
     expect(decision.kind).toBe('refuse')
     if (decision.kind !== 'refuse') return
-    expect(decision.reason).toContain('launchOwnChrome')
+    expect(decision.reason).toContain('launchStandaloneChromeProfile')
     expect(decision.reason).toContain('chrome://extensions')
   })
 })

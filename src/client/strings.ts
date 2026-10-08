@@ -42,6 +42,8 @@ export type BrowserSettingsKey =
   | 'tokenHint'
   | 'tokenPlaceholder'
   | 'invalidToken'
+  | 'launchLabel'
+  | 'launchHint'
   | 'overridden'
   | 'reset'
   | 'save'
@@ -88,6 +90,8 @@ export const zh: Record<BrowserSettingsKey, string> = {
     + '没配对之前浏览器操作会被拒绝. 这个值明文显示, 因为它需要和扩展面板里那串核对.',
   tokenPlaceholder: '粘贴扩展面板里显示的令牌',
   invalidToken: '这个值不被接受',
+  launchLabel: '启动独立 profile 的 Chrome',
+  launchHint: '关闭时永远不自行打开 Chrome, 只用扩展已经连上的那个浏览器. 打开后 dsh 会用一份全新的独立 profile 启动 Chrome, 不再复用你日常那个窗口; 那份 profile 没有登录态, 需要单独再加载一次扩展.',
   overridden: '已覆盖',
   reset: '恢复默认',
   save: '保存',
@@ -135,6 +139,8 @@ export const en: Record<BrowserSettingsKey, string> = {
     + 'Browser operations are refused until this matches. The value is shown in clear because it must be compared with the popup.',
   tokenPlaceholder: 'Paste the token shown in the extension popup',
   invalidToken: 'This value is not accepted',
+  launchLabel: 'Launch a standalone Chrome profile',
+  launchHint: 'Off: never open Chrome; only reuse the browser whose extension is already connected. On: dsh launches a fresh independent profile and will not reuse your daily Chrome. That profile has no login state and needs the extension loaded once.',
   overridden: 'Overridden',
   reset: 'Reset',
   save: 'Save',
