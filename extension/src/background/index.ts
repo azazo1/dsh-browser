@@ -8,7 +8,7 @@
  * 这里不实现任何"猜测端口"或"探测宿主"的逻辑, 那是 native messaging 换掉的东西.
  */
 
-import { NATIVE_HOST_NAME, PROTOCOL_VERSION } from '../../../shared/protocol.js'
+import { MAX_CONSOLE_READ_WAIT_MS, NATIVE_HOST_NAME, PROTOCOL_VERSION } from '../../../shared/protocol.js'
 import type { CallFrame, OutboundFrame } from '../../../shared/protocol.js'
 import { isBrowserMethod } from '../../../shared/methods.js'
 import { NativeBridge } from './native.js'
@@ -34,6 +34,14 @@ import {
 import { captureTab } from './screenshot.js'
 import { evaluateInTab } from './evaluate.js'
 import { activateTab, closeTab, getTab, listTabs, openTab } from './tabs.js'
+import {
+  consoleCaptureStatus,
+  installConsoleListeners,
+  readEntries,
+  restoreConsoleCapture,
+  startCapture,
+  stopCapture,
+} from './console.js'
 
 /** 单条日志的前缀, 便于在 chrome://extensions 的日志里筛出本扩展. */
 const LOG_PREFIX = '[dsh-browser]'
@@ -173,6 +181,12 @@ async function dispatch(method: string, args: Record<string, unknown>): Promise<
         String(args.expression),
         args.world === 'main' ? 'main' : 'isolated',
       )
+    case 'console.start':
+      return startCapture(await ensureBoundTabAlive())
+    case 'console.read':
+      return readEntries(Math.min(Math.max(Number(args.waitMs ?? 0), 0), MAX_CONSOLE_READ_WAIT_MS))
+    case 'console.stop':
+      return stopCapture()
     default:
       throw new PageError('internal', `未知方法 ${method}`)
   }
@@ -256,6 +270,7 @@ function greet(): void {
       boundTabId,
       userScripts: userScriptsAvailable(),
       pairingToken: cachedPairingToken,
+      consoleCapturing: consoleCaptureStatus(),
     },
   })
   // 绑定目标可能已经被关掉, 顺手清理一次, 免得宿主拿到过期编号.
@@ -289,6 +304,7 @@ function statusSnapshot(): BridgeStatus & {
   hostName: string
   userScripts: boolean
   pairingToken: string
+  consoleCapturing: { tabId: number } | null
 } {
   return {
     ...bridge.getStatus(),
@@ -296,6 +312,7 @@ function statusSnapshot(): BridgeStatus & {
     hostName: NATIVE_HOST_NAME,
     userScripts: userScriptsAvailable(),
     pairingToken: cachedPairingToken,
+    consoleCapturing: consoleCaptureStatus(),
   }
 }
 
@@ -342,6 +359,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 })
 
 log('info', `service worker 启动, 扩展 id=${extensionId}, 正在连接 native host ${NATIVE_HOST_NAME}`)
+// console 抓取的状态持久在 storage.session 里, 先恢复再连接, greet 才能带上正确的
+// "正在抓取" 标记; debugger 事件监听也要在恢复之前就位, 避免恢复窗口期丢事件.
+installConsoleListeners()
+void restoreConsoleCapture()
 // 先取令牌再连接: 握手要在第一条 hello 里就带上它, 否则第一次握手必然被判失败, 白白多一轮
 // 重连. 取失败也照样继续, 那时 dsh 会报"扩展没报上令牌", 比静默不动更容易诊断.
 void loadPairingToken().then(() => { bridge.connect() })

@@ -35,6 +35,7 @@ import { PairingTokenStore } from './pairing-store.js'
 import { BrowserRuntime } from './runtime.js'
 import { registerApi } from './server.js'
 import { advancedTools } from './tools/advanced.js'
+import { consoleTool } from './tools/console.js'
 import { pageTools } from './tools/page.js'
 import { screenshotTool } from './tools/screenshot.js'
 import { sessionTools } from './tools/session.js'
@@ -167,6 +168,7 @@ export function apply(ctx: Context, input: ConfigShape): void {
     ...sessionTools({ runtime }),
     ...pageTools({ runtime }),
     ...advancedTools({ runtime }),
+    consoleTool({ runtime }),
     screenshotTool({ runtime, screenshotsDir: () => runtime.paths.screenshotsDir }),
   ]
   ctx.effect(() => {

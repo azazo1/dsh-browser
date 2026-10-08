@@ -11,6 +11,7 @@
       <p id="detail" class="detail">正在读取状态...</p>
       <p id="binding" class="binding">尚未绑定标签页</p>
       <p id="capabilities" class="binding">浏览器求值: 正在检测...</p>
+      <p id="console-state" class="binding">console 抓取: 未开启</p>
       <details class="pairing">
         <summary class="pairing-title">配对令牌</summary>
         <p class="pairing-hint">
@@ -26,7 +27,8 @@
       <p id="pairing-state" class="pairing-state"></p>
       <button id="reconnect" type="button">重新连接</button>
       <p class="hint">
-        本扩展不使用 Chrome 调试协议, 它通过 native messaging 与 dsh 通信.
+        本扩展通过 native messaging 与 dsh 通信, 页面操作不使用 Chrome 调试协议;
+        仅在抓取 console 时短暂启用调试器, 顶部会显示提示条.
         连不上时请在 dsh 的插件配置页点「安装连接组件」.
       </p>
     </main>

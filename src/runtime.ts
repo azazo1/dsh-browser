@@ -87,6 +87,8 @@ export interface BrowserStatus {
   launchArgs: string[] | null
   /** 当前连接所属 Chrome 的 user-data-dir; 探测不到为 null. */
   peerUserDataDir: string | null
+  /** 扩展是否正在抓取 console (chrome.debugger); 未在抓取为 null. */
+  consoleCapturing: { tabId: number } | null
   /** 为了让状态可用, 需要用户或模型做什么. */
   nextSteps: string[]
 }
@@ -443,6 +445,7 @@ export class BrowserRuntime {
       bridgeError: bridgeState.lastError,
       launchArgs: this.launchArgs,
       peerUserDataDir: bridgeState.peerUserDataDir,
+      consoleCapturing: bridgeState.consoleCapturing,
       holderId: this.grantedId,
       nextSteps,
     }

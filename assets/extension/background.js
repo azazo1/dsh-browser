@@ -2,6 +2,7 @@
 var PROTOCOL_VERSION = 1;
 var NATIVE_HOST_NAME = "com.azazo1.dsh_browser";
 var MAX_TEXT_CHARS = 12e4;
+var MAX_CONSOLE_READ_WAIT_MS = 1e4;
 
 // shared/methods.ts
 var BROWSER_METHODS = [
@@ -24,7 +25,10 @@ var BROWSER_METHODS = [
   "page.uploadCommit",
   "page.uploadAbort",
   "page.screenshot",
-  "page.evaluate"
+  "page.evaluate",
+  "console.start",
+  "console.read",
+  "console.stop"
 ];
 function isBrowserMethod(value) {
   return BROWSER_METHODS.includes(value);
@@ -1145,6 +1149,257 @@ async function evaluateInTab(tabId, expression, world) {
   return normalizeEvaluateResult(first.result);
 }
 
+// extension/src/background/console.ts
+var MAX_ENTRIES = 1e3;
+var MAX_ENTRY_CHARS = 2e3;
+var READ_POLL_INTERVAL_MS = 200;
+var STORAGE_KEY2 = "consoleCapture";
+function formatRemoteObject(obj) {
+  const preview = obj.preview;
+  if (preview !== void 0) {
+    const items = (preview.properties ?? []).map((property) => `${property.name}: ${property.value ?? formatRemoteObjectEmpty(property)}`);
+    const body = items.join(", ") + (preview.overflow === true ? ", \u2026" : "");
+    const open = preview.type === "array" ? "[" : "{";
+    const close = preview.type === "array" ? "]" : "}";
+    return `${open}${body}${close}`;
+  }
+  if (obj.type === "string") return JSON.stringify(obj.value);
+  if (obj.value !== void 0) return String(obj.value);
+  if (obj.unserializableValue !== void 0) return obj.unserializableValue;
+  if (obj.description !== void 0) return obj.description;
+  return `[${obj.type}]`;
+}
+function formatRemoteObjectEmpty(property) {
+  if (property.subtype !== void 0) return `<${property.subtype}>`;
+  if (property.type !== void 0) return `<${property.type}>`;
+  return "<\u2026>";
+}
+function mapConsoleApiCalled(seq, params) {
+  const frame = params.stackTrace?.[0];
+  const text = truncateText((params.args ?? []).map(formatRemoteObject).join(" "));
+  return {
+    seq,
+    level: levelOfType(params.type),
+    type: params.type,
+    text,
+    url: frame?.url ? frame.url : null,
+    line: typeof frame?.lineNumber === "number" ? frame.lineNumber + 1 : null,
+    timestamp: params.timestamp ?? Date.now()
+  };
+}
+function mapExceptionThrown(seq, params) {
+  const details = params.exceptionDetails ?? {};
+  const text = details.exception?.description ?? (details.exception?.value !== void 0 ? String(details.exception.value) : details.text ?? "Unknown error");
+  return {
+    seq,
+    level: "error",
+    type: "exception",
+    text: truncateText(text),
+    url: details.url ? details.url : null,
+    line: typeof details.lineNumber === "number" ? details.lineNumber + 1 : null,
+    timestamp: params.timestamp ?? Date.now()
+  };
+}
+function levelOfType(type) {
+  switch (type) {
+    case "log":
+      return "log";
+    case "info":
+      return "info";
+    case "warning":
+      return "warning";
+    case "error":
+    case "assert":
+      return "error";
+    case "debug":
+      return "debug";
+    default:
+      return "other";
+  }
+}
+function truncateText(text) {
+  return text.length > MAX_ENTRY_CHARS ? `${text.slice(0, MAX_ENTRY_CHARS)}\u2026` : text;
+}
+function describeDetachReason(reason) {
+  switch (reason) {
+    case "canceled_by_user":
+      return '\u7528\u6237\u70B9\u6389\u4E86"\u5DF2\u5F00\u59CB\u8C03\u8BD5\u6B64\u6D4F\u89C8\u5668"\u63D0\u793A\u6761';
+    case "target_closed":
+      return "\u76EE\u6807\u6807\u7B7E\u9875\u5DF2\u5173\u95ED";
+    case "browser_forced":
+      return "\u6D4F\u89C8\u5668\u5F3A\u5236\u5206\u79BB\u4E86\u8C03\u8BD5\u5668";
+    case "injection_failed":
+      return "\u8C03\u8BD5\u5668\u6CE8\u5165\u5931\u8D25";
+    case "permission_denied":
+      return "\u8C03\u8BD5\u6743\u9650\u88AB\u62D2\u7EDD";
+    default:
+      return `\u6D4F\u89C8\u5668\u5206\u79BB\u4E86\u8C03\u8BD5\u5668 (${reason})`;
+  }
+}
+var state = null;
+var loaded = false;
+var intentionalDetach = false;
+var persistChain = Promise.resolve();
+async function restoreConsoleCapture() {
+  if (loaded) return;
+  loaded = true;
+  try {
+    const stored = await chrome.storage.session.get(STORAGE_KEY2);
+    const restored = stored[STORAGE_KEY2];
+    state = restored ?? null;
+  } catch {
+    state = null;
+  }
+  if (state?.capturing === true && state.tabId !== null) {
+    try {
+      await chrome.debugger.sendCommand({ tabId: state.tabId }, "Runtime.evaluate", { expression: "1" });
+    } catch {
+      state.capturing = false;
+      state.interrupted ??= "\u6269\u5C55\u540E\u53F0\u88AB\u91CD\u542F, \u8C03\u8BD5\u5668\u8FDE\u63A5\u5DF2\u4E22\u5931";
+      void persistState();
+    }
+  }
+}
+function consoleCaptureStatus() {
+  return state?.capturing === true && state.tabId !== null ? { tabId: state.tabId } : null;
+}
+function persistState() {
+  const chain = persistChain.then(async () => {
+    if (state === null) await chrome.storage.session.remove(STORAGE_KEY2);
+    else await chrome.storage.session.set({ [STORAGE_KEY2]: state });
+  });
+  persistChain = chain.catch(() => void 0);
+  return chain;
+}
+function appendEntry(entry) {
+  if (state === null) return;
+  state.seq = Math.max(state.seq, entry.seq);
+  state.entries.push(entry);
+  if (state.entries.length > MAX_ENTRIES) state.entries.splice(0, state.entries.length - MAX_ENTRIES);
+  void persistState();
+}
+async function detachQuietly(tabId) {
+  intentionalDetach = true;
+  try {
+    await chrome.debugger.detach({ tabId });
+  } catch {
+    intentionalDetach = false;
+  }
+}
+function installConsoleListeners() {
+  chrome.debugger.onEvent.addListener((source, method, params) => {
+    void handleDebuggerEvent(source, method, params);
+  });
+  chrome.debugger.onDetach.addListener((source, reason) => {
+    handleDetach(source, String(reason));
+  });
+}
+async function handleDebuggerEvent(source, method, params) {
+  if (!loaded) await restoreConsoleCapture();
+  if (state === null || !state.capturing || source.tabId !== state.tabId) return;
+  if (method === "Runtime.consoleAPICalled") {
+    appendEntry(mapConsoleApiCalled(state.seq + 1, params));
+    return;
+  }
+  if (method === "Runtime.exceptionThrown") {
+    appendEntry(mapExceptionThrown(state.seq + 1, params));
+  }
+}
+function handleDetach(source, reason) {
+  if (intentionalDetach) {
+    intentionalDetach = false;
+    return;
+  }
+  if (state === null || !state.capturing || source.tabId !== state.tabId) return;
+  state.capturing = false;
+  state.interrupted = describeDetachReason(reason);
+  void persistState();
+}
+async function startCapture(tabId) {
+  await restoreConsoleCapture();
+  if (state?.capturing === true && state.tabId !== null && state.tabId !== tabId) {
+    await detachQuietly(state.tabId);
+  }
+  if (state?.capturing === true && state.tabId === tabId) {
+    state.entries = [];
+    state.interrupted = null;
+    await chrome.debugger.sendCommand({ tabId }, "Runtime.enable");
+    void persistState();
+    return { tabId, note: "\u8BE5\u6807\u7B7E\u9875\u5DF2\u7ECF\u5728\u6293\u53D6, \u7F13\u51B2\u5DF2\u6E05\u7A7A, \u4ECE\u73B0\u5728\u5F00\u59CB\u91CD\u65B0\u6536\u96C6." };
+  }
+  try {
+    await chrome.debugger.attach({ tabId }, "1.3");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/cannot attach/i.test(message)) {
+      throw new PageError(
+        "injection-blocked",
+        `\u65E0\u6CD5\u5BF9\u6807\u7B7E\u9875 ${String(tabId)} \u5F00\u542F console \u6293\u53D6: Chrome \u4E0D\u5141\u8BB8\u5728\u8FD9\u4E2A\u9875\u9762\u4E0A\u4F7F\u7528\u8C03\u8BD5\u5668, \u5E38\u89C1\u4E8E chrome:// \u7B49\u5185\u90E8\u9875\u9762. \u8BF7\u6362\u4E00\u4E2A\u666E\u901A\u7F51\u9875.`
+      );
+    }
+    throw new PageError("internal", `\u5BF9\u6807\u7B7E\u9875 ${String(tabId)} \u9644\u52A0\u8C03\u8BD5\u5668\u5931\u8D25: ${message}`);
+  }
+  try {
+    await chrome.debugger.sendCommand({ tabId }, "Runtime.enable");
+  } catch (error) {
+    await detachQuietly(tabId);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new PageError("internal", `\u5F00\u542F Runtime \u57DF\u5931\u8D25, \u5DF2\u653E\u5F03\u6293\u53D6: ${message}`);
+  }
+  state = { tabId, capturing: true, seq: 0, entries: [], interrupted: null };
+  void persistState();
+  return {
+    tabId,
+    note: '\u5DF2\u5F00\u59CB\u6293\u53D6 console (\u53EA\u6536\u96C6\u4ECE\u73B0\u5728\u5F00\u59CB\u7684\u8F93\u51FA, \u4E0D\u542B\u5386\u53F2). \u6D4F\u89C8\u5668\u9876\u90E8\u4F1A\u51FA\u73B0"\u5DF2\u5F00\u59CB\u8C03\u8BD5\u6B64\u6D4F\u89C8\u5668"\u63D0\u793A\u6761, \u5C5E\u6B63\u5E38\u73B0\u8C61, \u9875\u9762\u68C0\u6D4B\u4E0D\u5230; \u5B8C\u6210\u6536\u96C6\u540E\u8BF7\u7528 action:"stop" \u7ED3\u675F, \u63D0\u793A\u6761\u968F\u4E4B\u6D88\u5931.'
+  };
+}
+async function readEntries(waitMs) {
+  await restoreConsoleCapture();
+  if (state === null) {
+    throw new PageError(
+      "internal",
+      '\u5F53\u524D\u6CA1\u6709 console \u6293\u53D6\u4F1A\u8BDD. \u8BF7\u5148\u7528 action:"start" \u5F00\u59CB\u6293\u53D6, \u518D\u6267\u884C\u60F3\u89C2\u5BDF\u7684\u9875\u9762\u64CD\u4F5C.'
+    );
+  }
+  const deadline = Date.now() + waitMs;
+  while (state.entries.length === 0 && state.capturing && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, READ_POLL_INTERVAL_MS));
+  }
+  const entries = state.entries;
+  state.entries = [];
+  const capturing = state.capturing;
+  const interrupted = state.interrupted;
+  void persistState();
+  const note = buildReadNote(entries.length, capturing, interrupted, waitMs);
+  return { entries, capturing, interrupted, note };
+}
+function buildReadNote(count, capturing, interrupted, waitMs) {
+  const parts = [`\u8FD4\u56DE ${String(count)} \u6761`];
+  if (capturing) {
+    parts.push("\u6293\u53D6\u4ECD\u5728\u8FDB\u884C");
+    if (count === 0 && waitMs > 0) parts.push(`\u5DF2\u7B49\u5F85 ${String(waitMs)}ms \u4ECD\u6CA1\u6709\u65B0\u8F93\u51FA`);
+    else if (count === 0) parts.push("\u671F\u95F4\u6CA1\u6709\u65B0\u8F93\u51FA; \u53EF\u4EE5\u628A\u64CD\u4F5C\u518D\u6267\u884C\u4E00\u904D\u540E\u5E26\u4E0A wait_ms \u91CD\u8BFB, \u6216\u76F4\u63A5 stop \u7ED3\u675F");
+  } else if (interrupted !== null) {
+    parts.push(`\u6293\u53D6\u5DF2\u4E2D\u65AD (${interrupted}); \u7F13\u51B2\u91CC\u7684\u6761\u76EE\u4ECD\u53EF\u8BFB, \u9700\u8981\u7EE7\u7EED\u8BF7\u91CD\u65B0 action:"start"`);
+  } else {
+    parts.push("\u6293\u53D6\u5DF2\u505C\u6B62");
+  }
+  return parts.join("; ");
+}
+async function stopCapture() {
+  await restoreConsoleCapture();
+  if (state === null) {
+    return { entries: [], capturing: false, interrupted: null, note: "\u6CA1\u6709\u6B63\u5728\u8FDB\u884C\u7684 console \u6293\u53D6." };
+  }
+  if (state.capturing && state.tabId !== null) await detachQuietly(state.tabId);
+  state.capturing = false;
+  state.interrupted = null;
+  const entries = state.entries;
+  state.entries = [];
+  void persistState();
+  return { entries, capturing: false, interrupted: null, note: `\u5DF2\u505C\u6B62\u6293\u53D6, \u8FD4\u56DE\u6700\u540E ${String(entries.length)} \u6761.` };
+}
+
 // extension/src/background/index.ts
 var LOG_PREFIX = "[dsh-browser]";
 function log(level, message, detail) {
@@ -1259,6 +1514,12 @@ async function dispatch(method, args) {
         String(args.expression),
         args.world === "main" ? "main" : "isolated"
       );
+    case "console.start":
+      return startCapture(await ensureBoundTabAlive());
+    case "console.read":
+      return readEntries(Math.min(Math.max(Number(args.waitMs ?? 0), 0), MAX_CONSOLE_READ_WAIT_MS));
+    case "console.stop":
+      return stopCapture();
     default:
       throw new PageError("internal", `\u672A\u77E5\u65B9\u6CD5 ${method}`);
   }
@@ -1321,7 +1582,8 @@ function greet() {
       version: chrome.runtime.getManifest().version,
       boundTabId,
       userScripts: userScriptsAvailable(),
-      pairingToken: cachedPairingToken
+      pairingToken: cachedPairingToken,
+      consoleCapturing: consoleCaptureStatus()
     }
   });
   if (boundTabId !== null) {
@@ -1344,7 +1606,8 @@ function statusSnapshot() {
     boundTabId,
     hostName: NATIVE_HOST_NAME,
     userScripts: userScriptsAvailable(),
-    pairingToken: cachedPairingToken
+    pairingToken: cachedPairingToken,
+    consoleCapturing: consoleCaptureStatus()
   };
 }
 chrome.runtime.onMessage.addListener((message, _sender, respond) => {
@@ -1382,6 +1645,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 log("info", `service worker \u542F\u52A8, \u6269\u5C55 id=${extensionId}, \u6B63\u5728\u8FDE\u63A5 native host ${NATIVE_HOST_NAME}`);
+installConsoleListeners();
+void restoreConsoleCapture();
 void loadPairingToken().then(() => {
   bridge.connect();
 });

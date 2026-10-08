@@ -111,7 +111,7 @@ dsh 与扩展之间用一条配对令牌互相确认, 没配对之前浏览器�
 不收代码字符串. 只有 `chrome.userScripts` 的 `USER_SCRIPT` world 豁免页面 CSP 且接受代码字符串,
 它的代价就是这个开关.
 
-**不开也能用**: 其余 16 个工具不受影响, 只是 `browser_evaluate` 会明确告诉你开关没开, 并建议改用
+**不开也能用**: 其余 19 个工具不受影响, 只是 `browser_evaluate` 会明确告诉你开关没开, 并建议改用
 `browser_query`. 配置页与 `browser_status` 都会显示这个开关的状态.
 
 ## 使用
@@ -137,6 +137,7 @@ dsh 与扩展之间用一条配对令牌互相确认, 没配对之前浏览器�
 | `browser_upload` | 把本机文件装进 `input[type=file]`, 按选择器定位 (文件输入框通常是隐藏的) |
 | `browser_screenshot` | 截当前视口存成图片文件并返回路径 |
 | `browser_evaluate` | 在页面里执行 JS 表达式取回结果 (需要额外开关, 见下) |
+| `browser_console` | 按需抓取绑定标签页的 console 输出与未捕获异常 (start / read / stop 三段式) |
 
 工具之间的分工值得说清楚, 因为它们看起来有重叠:
 
@@ -146,6 +147,9 @@ dsh 与扩展之间用一条配对令牌互相确认, 没配对之前浏览器�
 - `browser_screenshot` 只截**当前视口**, 而且**不把图片发给模型**: 它落成文件并返回路径. 能看图的
   模型接着用 `read_image` 读这个路径; 不能看图的模型把路径交给用户. 这样图片的限额, 缩放与
   模型能力判断都由 harness 已有的 `read_image` 负责, 插件不重复实现一遍.
+- `browser_console` 是唯一走 `chrome.debugger` 的工具: 只在 start 与 stop 之间 attach, 期间浏览器
+  顶部会出现"已开始调试此浏览器"提示条 (页面脚本检测不到, 但用户可见, 也可以点掉它强制中断).
+  它只收集开始之后的输出, 不含历史.
 
 两个使用上的要点:
 
@@ -279,7 +283,7 @@ tests/              见下
 - `bundle-purity` —— 同一件事, 但针对**打包产物**里那一份. 打包器降级语法时可能插入模块级 helper, 那会让注入函数在页面里炸掉, 而源码测试看不到.
 - `native-host-install` —— 连接组件生成: 清单里的 `allowed_origins` 是否写对了扩展 id, 包装脚本是否用了绝对解释器路径并可执行, 重复安装是否幂等.
 - `nm-host-relay` —— 把构建产物 `lib/nm-host.cjs` 当子进程真跑起来, 用真的 WebSocket 服务扮演 dsh 侧, 验双向转发, 分帧和令牌. 除了 Chrome 本身, 整条管道都真实走了一遍.
-- `tool-output-contract` —— 用 harness **自己那个** `snapshotJsonValue` 逐个跑 17 个工具的真实 `execute` 路径, 桩只替换扩展那一层. 这条是踩坑之后加的: 曾经 `shared/methods.ts` 声明返回 `{ ok, note }` 而扩展只返回 `{ note }`, 于是产物里多出一个 `ok: undefined`, 被 harness 判为"不是 lossless JSON"而**整批拒掉**, 但动作其实生效了 —— 现象是"操作成功却报错", 而类型系统完全看不到这层不一致.
+- `tool-output-contract` —— 用 harness **自己那个** `snapshotJsonValue` 逐个跑 20 个工具的真实 `execute` 路径, 桩只替换扩展那一层. 这条是踩坑之后加的: 曾经 `shared/methods.ts` 声明返回 `{ ok, note }` 而扩展只返回 `{ note }`, 于是产物里多出一个 `ok: undefined`, 被 harness 判为"不是 lossless JSON"而**整批拒掉**, 但动作其实生效了 —— 现象是"操作成功却报错", 而类型系统完全看不到这层不一致.
 - `injection-args` —— 守 `undefined` 不能跨进程序列化这件事: `chrome.scripting.executeScript` 传参走 JSON, 所以省略可选参数时把 `undefined` 塞进参数数组会让调用直接失败 (报错只给一个下标, 不说原因). 曾经 `browser_scroll` 省略 `amount` 就必然失败, 而显式给 `amount` 正常.
 - `evaluate-code` —— 浏览器求值的页面侧代码是以**字符串**送进浏览器的, 类型系统管不到; 这组测试直接跑生成的代码, 检查它语法正确, 结果形状固定, 并且把函数, DOM 节点, 循环引用, bigint 这些无法跨进程序列化的值都收敛成字符串.
 - `rendezvous-timing` —— 会合文件的发布时机与内容: 它在**插件加载时**就要写好, 而不是等第一次工具调用, 否则扩展装好了宿主也连不上; 以及扩展已连接时不该再启动新 Chrome.
@@ -339,6 +343,7 @@ Chrome 自带的打包器仍然可用 (`--pack-extension` 没有被禁, 被禁�
 - **一次只服务一个会话.** 浏览器平面是有状态的, 两个会话同时驱动会互相踩, 所以第二个会话会被明确拒绝而不是放进去造成难以复现的混乱.
 - **截图只有当前视口, 而且不发给模型.** 整页需要滚动拼接, 而宿主侧没有图像库; 图片落成文件后由 `read_image` (能看图的模型) 或用户自己查看.
 - **`browser_evaluate` 需要用户在扩展详情页手动打开开关.** 其余工具不受影响. 在页面 CSP 严格的站点上, `world: "main"` 可能被拒 (那是页面自己的限制), 默认的 `isolated` 不受影响.
+- **`browser_console` 只在抓取期间有效, 且缓冲有限.** 只收集 start 之后的输出; 环形缓冲上限 1000 条, 超出淘汰最旧的; 条目与状态存在 `chrome.storage.session`, 浏览器重启后自然清空. 用户点掉调试提示条或打开 DevTools 都会中断抓取, 下次 read 会报告原因.
 - **`unpacked` 加载方式没有自动更新.** 每次改扩展要手动 reload.
 
 ## License

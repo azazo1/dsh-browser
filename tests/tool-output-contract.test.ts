@@ -26,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { advancedTools } from '../src/tools/advanced.ts'
+import { consoleTool } from '../src/tools/console.ts'
 import { pageTools } from '../src/tools/page.ts'
 import { screenshotTool } from '../src/tools/screenshot.ts'
 import { sessionTools } from '../src/tools/session.ts'
@@ -89,6 +90,24 @@ const EXTENSION_RESULTS: Record<string, unknown> = {
     url: 'https://www.google.com/',
   },
   'page.evaluate': { value: '"Google"', truncated: false, valueType: 'string' },
+  'console.start': { tabId: 1391393307, note: '已开始抓取 console (只收集从现在开始的输出, 不含历史).' },
+  'console.read': { entries: [], capturing: true, interrupted: null, note: '返回 0 条; 抓取仍在进行.' },
+  'console.stop': {
+    entries: [
+      {
+        seq: 1,
+        level: 'log',
+        type: 'log',
+        text: 'hello',
+        url: 'https://example.com/app.js',
+        line: 12,
+        timestamp: 1_700_000_000_000,
+      },
+    ],
+    capturing: false,
+    interrupted: null,
+    note: '已停止抓取, 返回最后 1 条.',
+  },
 }
 
 /** 造一个只替换扩展层的假运行时; 其余字段照真实现填. */
@@ -145,6 +164,7 @@ const CALL_ARGS: Record<string, unknown> = {
   browser_upload: { file_paths: [] as string[], selector: 'input[type=file]' },
   browser_screenshot: { format: 'png' },
   browser_evaluate: { expression: 'document.title', world: 'isolated' },
+  browser_console: { action: 'read', wait_ms: 0 },
   browser_release: {},
 }
 
@@ -163,6 +183,7 @@ beforeEach(async () => {
     ...sessionTools(deps),
     ...pageTools(deps),
     ...advancedTools(deps),
+    consoleTool(deps),
     screenshotTool({ ...deps, screenshotsDir: () => join(tempRoot, 'screenshots') }),
   ]
   tools = new Map(all.map(tool => [tool.name, tool]))
@@ -192,6 +213,7 @@ describe('每个 browser_* 工具的产物都是 harness 认可的 lossless JSON
     expect([...tools.keys()].sort()).toEqual([
       'browser_click',
       'browser_close_tab',
+      'browser_console',
       'browser_evaluate',
       'browser_fill',
       'browser_hover',

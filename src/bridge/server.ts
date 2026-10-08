@@ -57,6 +57,13 @@ export interface BridgeConnectionState {
    * 当前连接所属 Chrome 的 `--user-data-dir`; 探测不到或尚未握手为 null.
    */
   peerUserDataDir: string | null
+  /**
+   * 扩展当前是否正通过 chrome.debugger 抓取 console.
+   *
+   * 来自握手与 hello, 只用于状态展示 (browser_status 与配置页); 抓取的真正控制权在
+   * console.start / console.stop 两个方法上, 这里不承载任何控制语义.
+   */
+  consoleCapturing: { tabId: number } | null
 }
 
 /** 一次调用的失败; code 与协议里的错误类别一致, 便于工具层生成提示. */
@@ -112,6 +119,7 @@ export class BridgeServer {
     pairingError: null,
     userScriptsAvailable: null,
     peerUserDataDir: null,
+    consoleCapturing: null,
   }
 
   /**
@@ -200,6 +208,7 @@ export class BridgeServer {
         boundTabId: null,
         userScriptsAvailable: null,
         peerUserDataDir: null,
+        consoleCapturing: null,
       })
       this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
     }
@@ -280,6 +289,7 @@ export class BridgeServer {
       boundTabId: null,
       userScriptsAvailable: null,
       peerUserDataDir: null,
+      consoleCapturing: null,
     })
     this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
     socket.close(1000, 'standalone-switch')
@@ -441,6 +451,7 @@ export class BridgeServer {
         boundTabId: null,
         userScriptsAvailable: null,
         peerUserDataDir: null,
+        consoleCapturing: null,
       })
       this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
     })
@@ -474,6 +485,7 @@ export class BridgeServer {
       boundTabId: typeof hello.boundTabId === 'number' ? hello.boundTabId : null,
       userScriptsAvailable: typeof hello.userScripts === 'boolean' ? hello.userScripts : null,
       peerUserDataDir: userDataDir,
+      consoleCapturing: hello.consoleCapturing ?? null,
     })
   }
 

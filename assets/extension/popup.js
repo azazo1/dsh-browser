@@ -39,6 +39,8 @@
     const tokenElement = element("pairing-token");
     tokenElement.textContent = status.pairingToken === "" ? "\u8BFB\u53D6\u4E2D..." : status.pairingToken;
     capabilities.textContent = status.userScripts ? "\u6D4F\u89C8\u5668\u6C42\u503C: \u53EF\u7528" : "\u6D4F\u89C8\u5668\u6C42\u503C: \u672A\u542F\u7528 (\u5728\u6269\u5C55\u8BE6\u60C5\u9875\u6253\u5F00 Allow User Scripts)";
+    const consoleState = element("console-state");
+    consoleState.textContent = status.consoleCapturing != null ? `console \u6293\u53D6: \u8FDB\u884C\u4E2D (\u6807\u7B7E\u9875 #${String(status.consoleCapturing.tabId)})` : "console \u6293\u53D6: \u672A\u5F00\u542F";
   }
   async function refresh() {
     try {
@@ -54,7 +56,8 @@
         hostName: "unknown",
         userScripts: false,
         pairingError: null,
-        pairingToken: ""
+        pairingToken: "",
+        consoleCapturing: null
       });
     }
   }

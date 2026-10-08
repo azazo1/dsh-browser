@@ -29,6 +29,9 @@ export type BrowserMethod =
   | 'page.uploadAbort'
   | 'page.screenshot'
   | 'page.evaluate'
+  | 'console.start'
+  | 'console.read'
+  | 'console.stop'
 
 /** 方法名到 参数/返回 的映射, 供两侧共用做类型约束. */
 export interface MethodContract {
@@ -52,6 +55,9 @@ export interface MethodContract {
   'page.uploadAbort': { args: { uploadIds: string[] }, result: { aborted: number, note: string } }
   'page.screenshot': { args: { format?: 'png' | 'jpeg' }, result: ScreenshotResult }
   'page.evaluate': { args: { expression: string, world?: EvaluateWorld }, result: EvaluateResult }
+  'console.start': { args: Record<string, never>, result: { tabId: number, note: string } }
+  'console.read': { args: { waitMs?: number }, result: ConsoleReadResult }
+  'console.stop': { args: Record<string, never>, result: ConsoleReadResult }
 }
 
 /** 一次结构化取值的结果. */
@@ -156,6 +162,46 @@ export interface PageActionResult {
   note: string
 }
 
+/**
+ * 一条 console 输出.
+ *
+ * level 是归一化后的级别, 直接来自 CDP 的 console API type; `dir` / `table` / `trace`
+ * 这类"更像是展示命令"的调用归入 `other`, 原始 type 单独保留在 type 字段里, 宿主不必
+ * 猜一条 `other` 到底是什么.
+ */
+export interface ConsoleEntry {
+  /** 会话内单调递增的序号; read 以它推进水位线, 宿主以它保证顺序. */
+  seq: number
+  level: 'log' | 'info' | 'warning' | 'error' | 'debug' | 'other'
+  /** CDP 的原始 console API type, 例如 log / dir / table / startGroup. */
+  type: string
+  /** 全部参数格式化后的文本; 单条有长度上限, 超长会截断. */
+  text: string
+  /** 输出来源脚本; 页面内联执行或异常没有位置时为 null. */
+  url: string | null
+  /** 来源行号与列号; 与 url 配套, 无位置时为 null. */
+  line: number | null
+  /** 事件的时间戳 (epoch 毫秒, 来自 CDP). */
+  timestamp: number
+}
+
+/** 一次 console 读取 (或停止) 的结果. */
+export interface ConsoleReadResult {
+  /** 自上次读取以来的条目, 按 seq 升序; 读取会推进水位线 (stop 是最终一次). */
+  entries: ConsoleEntry[]
+  /** 读取时抓取是否仍在进行; stop 之后恒为 false. */
+  capturing: boolean
+  /**
+   * 抓取被中断的原因; null 表示没有中断过.
+   *
+   * 用户点掉"已开始调试此浏览器"提示条, 打开 DevTools, 标签页关闭, 以及 service worker
+   * 重启后 attachment 丢失, 都会走到这里 —— 缓冲里的条目仍然可读, 但之后不会再有新的.
+   */
+  interrupted: string | null
+  /** 给模型的说明, 包含条数与下一步建议. */
+  note: string
+}
+
 /** 取某个方法的参数类型. */
 export type MethodArgs<M extends BrowserMethod> = MethodContract[M]['args']
 
@@ -184,6 +230,9 @@ export const BROWSER_METHODS: readonly BrowserMethod[] = [
   'page.uploadAbort',
   'page.screenshot',
   'page.evaluate',
+  'console.start',
+  'console.read',
+  'console.stop',
 ]
 
 /** 判断一个字符串是否是已知方法名. */

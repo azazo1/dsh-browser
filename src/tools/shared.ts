@@ -143,6 +143,10 @@ export function formatStatus(
   if (status.launchStandaloneChromeProfile) {
     lines.push(`对端 profile: ${status.peerUserDataDir ?? '未探测到'}`)
   }
+  // console 抓取是页面上唯一带可见副作用 (顶部提示条) 的能力, 状态里要能看出它开着没.
+  if (status.consoleCapturing !== null && status.consoleCapturing !== undefined) {
+    lines.push(`console 抓取: 进行中 (标签页 ${String(status.consoleCapturing.tabId)}, 顶部有调试提示条)`)
+  }
   lines.push(`绑定标签页: ${!linked || status.boundTabId === null ? '无' : `id=${String(status.boundTabId)}`}`)
   // 独占: 同一时刻只有一个会话能驱动这个浏览器. 这里要说清两件事 —— 现在归谁, 以及
   // "本会话能不能直接用", 因为后者决定了下一次调用会不会弹审批.

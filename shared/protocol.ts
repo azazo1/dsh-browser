@@ -36,6 +36,14 @@ export const MAX_TEXT_CHARS = 120_000
 /** 一次工具调用的默认截止时间; 扩展超时会回一个错误而不是一直挂着. */
 export const DEFAULT_CALL_TIMEOUT_MS = 30_000
 
+/**
+ * console.read 长轮询的等待上限.
+ *
+ * 两侧共用: 扩展用它截住等待, 宿主用它计算调用超时 (waitMs + 余量). 放在协议层是因为
+ * 它约束的是"read 这次调用能等多久"这个两侧都要遵守的行为, 不是某一侧的实现细节.
+ */
+export const MAX_CONSOLE_READ_WAIT_MS = 10_000
+
 /** 页面快照里一个可交互元素的编号条目. */
 export interface SnapshotElement {
   /** 快照内的稳定编号, 后续 click / fill 用它寻址. */
@@ -101,6 +109,13 @@ export interface HelloPayload {
    * 与配置里那份目录一致的连接, 避免日常 Chrome 把独立窗口的通道顶掉.
    */
   userDataDir?: string | null
+  /**
+   * 扩展当前是否正通过 chrome.debugger 抓取 console.
+   *
+   * 可选: 老版本扩展不会报这个字段, 缺失时按"未在抓取"处理. 宿主与 popup 用它展示
+   * "console 抓取进行中"的状态, 因为提示条之外用户在页面上看不到任何痕迹.
+   */
+  consoleCapturing?: { tabId: number } | null
 }
 
 /** 宿主发往扩展的调用帧. */

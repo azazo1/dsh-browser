@@ -5,7 +5,8 @@
  * 工具文件既描述协议又描述排版, 两边都读不清.
  */
 
-import type { EvaluateResult, QueryResult } from '../../shared/methods.js'
+import type { ConsoleEntry, ConsoleReadResult, EvaluateResult, QueryResult } from '../../shared/methods.js'
+import { MAX_TEXT_CHARS } from '../../shared/protocol.js'
 
 /**
  * 单条取值结果的展示上限.
@@ -71,4 +72,61 @@ export function formatScreenshot(shot: { path: string, bytes: number, width: num
     + '若不能, 把路径告诉 user 由他查看.',
     '只截到了当前视口; 需要看更下面的内容时, 先 browser_scroll 再截一次.',
   ].join('\n')
+}
+
+/** 各级别在输出里的标记; other 额外带原始 type, 便于模型认出 dir/table 这类展示命令. */
+const LEVEL_LABEL: Record<ConsoleEntry['level'], string> = {
+  log: 'log',
+  info: 'info',
+  warning: 'warn',
+  error: 'error',
+  debug: 'debug',
+  other: 'other',
+}
+
+/** 排版一条 console 条目. */
+function formatConsoleEntry(entry: ConsoleEntry): string {
+  const where = entry.url === null
+    ? ''
+    : ` (${entry.url}${entry.line === null ? '' : `:${String(entry.line)}`})`
+  const typeNote = entry.level === 'other' ? ` [${entry.type}]` : ''
+  return `[${LEVEL_LABEL[entry.level]}]${typeNote} ${entry.text}${where}`
+}
+
+/**
+ * 渲染一次 console 读取 (或停止) 的结果.
+ *
+ * 条目按发生顺序排列, 不按级别重排: console 的价值在于时间线, 重排会把因果打乱. 总量
+ * 超出 MAX_TEXT_CHARS 时从最旧的一端裁掉 (保留最新的), 因为最近发生的输出通常才是模型
+ * 正在观察的东西.
+ *
+ * @param result 读取结果.
+ * @returns 给模型的文本.
+ */
+export function formatConsole(result: ConsoleReadResult): string {
+  if (result.entries.length === 0) {
+    const suffix = result.interrupted !== null
+      ? ` (${result.interrupted}; 需要继续请重新 action:"start")`
+      : ''
+    return `console 输出: 没有新输出${suffix}. ${result.note}`
+  }
+  // 从最新往回收, 在总预算内保留尽可能多的**最新**条目.
+  const formatted = result.entries.map(formatConsoleEntry)
+  const picked: string[] = []
+  let used = 0
+  for (let index = formatted.length - 1; index >= 0; index -= 1) {
+    const line = formatted[index]
+    if (line === undefined) break
+    if (used + line.length + 1 > MAX_TEXT_CHARS && picked.length > 0) break
+    picked.unshift(line)
+    used += line.length + 1
+  }
+  const omitted = formatted.length - picked.length
+  const lines = [
+    `console 输出, ${result.note}`,
+    '',
+    ...picked,
+  ]
+  if (omitted > 0) lines.push(`\n(已省略最早的 ${String(omitted)} 条, 只保留最新的 ${String(picked.length)} 条)`)
+  return lines.join('\n')
 }

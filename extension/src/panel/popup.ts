@@ -21,6 +21,8 @@ interface StatusResponse {
   pairingError: string | null
   /** 本扩展的配对令牌, 供用户抄进 dsh 配置. */
   pairingToken: string
+  /** 当前是否正通过调试器抓取 console; null/缺失表示未在抓取. */
+  consoleCapturing?: { tabId: number } | null
 }
 
 /** 取一个元素, 找不到就抛错 (弹窗 DOM 是静态的, 缺元素属于开发错误). */
@@ -83,6 +85,12 @@ function render(status: StatusResponse): void {
   capabilities.textContent = status.userScripts
     ? '浏览器求值: 可用'
     : '浏览器求值: 未启用 (在扩展详情页打开 Allow User Scripts)'
+
+  // console 抓取是页面上唯一看不到痕迹的功能 (只有顶部提示条), 所以面板要替它出声.
+  const consoleState = element('console-state')
+  consoleState.textContent = status.consoleCapturing != null
+    ? `console 抓取: 进行中 (标签页 #${String(status.consoleCapturing.tabId)})`
+    : 'console 抓取: 未开启'
 }
 
 /** 向 service worker 要一次状态. */
@@ -101,6 +109,7 @@ async function refresh(): Promise<void> {
       userScripts: false,
       pairingError: null,
       pairingToken: '',
+      consoleCapturing: null,
     })
   }
 }
