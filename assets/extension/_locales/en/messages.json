@@ -4,7 +4,7 @@
     "description": "Extension name shown in the browser toolbar."
   },
   "extDescription": {
-    "message": "Connect dsh to tabs in your local Google Chrome. No Chrome DevTools Protocol: native messaging carries a numbered text view of the page to the model.",
+    "message": "Connect dsh to your local Google Chrome. No CDP: native messaging sends a numbered text view of the page to the model.",
     "description": "Store listing and chrome://extensions summary, limited to 132 characters."
   }
 }
