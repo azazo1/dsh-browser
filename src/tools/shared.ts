@@ -122,6 +122,11 @@ export function formatStatus(
     lines.push(`连接组件: ${status.host.manifestReady ? '已安装' : '未安装'} (清单 ${status.host.manifestPath})`)
     lines.push(`扩展 id: ${status.host.extensionId}`)
   }
+  // 启动方式要在"扩展连接"之前讲清: 用户最担心的是"会不会突然冒出一个 Chrome 窗口",
+  // 而这完全由这个开关决定.
+  lines.push(`浏览器启动方式: ${status.launchOwnChrome
+    ? '允许 dsh 启动自带的独立 profile Chrome'
+    : '不自行启动 Chrome, 只用你现有的浏览器 (launchOwnChrome 未打开)'}`)
   // 配对状态放在扩展连接之前: 没配对时后面所有浏览器操作都会失败, 而原因就是这个, 所以
   // 用户应当先看到它.
   lines.push(status.pairingConfigured

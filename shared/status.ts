@@ -44,6 +44,8 @@ export interface StatusPayload {
   userScriptsAvailable: boolean | null
   /** 桥层的最近一次异常. */
   bridgeError: string | null
+  /** 是否允许 dsh 启动它自己那份独立 profile 的 Chrome. */
+  launchOwnChrome: boolean
   /** dsh 侧是否已经配置了配对令牌. */
   pairingConfigured: boolean
   /** 握手因配对失败被拒时的原因; null 表示没有发生过. */

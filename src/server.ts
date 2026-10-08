@@ -68,6 +68,7 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
     userScriptsAvailable: status.userScriptsAvailable,
     boundTabId: status.boundTabId,
     bridgeError: status.bridgeError,
+    launchOwnChrome: status.launchOwnChrome,
     pairingConfigured: status.pairingConfigured,
     pairingError: status.pairingError,
     launchArgs: status.launchArgs,

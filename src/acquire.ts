@@ -16,6 +16,7 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BrowserRuntime } from './runtime.js'
 import type { Config } from './config.js'
+import type { SetupStatus } from './setup.js'
 
 /**
  * 需要驱动权的工具.
@@ -108,6 +109,8 @@ export interface AcquireInput {
   args: unknown
   /** 取消信号. */
   signal: AbortSignal
+  /** 当前的配置就绪状态; 不就绪时不会征求授权, 而是返回配置说明. */
+  setup: SetupStatus
 }
 
 /**
@@ -149,6 +152,14 @@ export async function requestBrowserAccess(input: AcquireInput): Promise<Acquire
     enabled: input.config.askOnAcquire.get(),
   })) {
     return { kind: 'allow' }
+  }
+
+  // 先确认"有一条能真正用上的路", 再问用户要不要用.
+  //
+  // 次序很重要: 没配好就问, 用户同意之后仍然什么都做不了, 而且他完全不知道缺什么 —— 那个
+  // 弹窗纯粹是一次打扰. 所以这种情况直接返回配置说明, 请模型讲给用户听.
+  if (!input.setup.ready) {
+    return { kind: 'deny', reason: input.setup.guide }
   }
 
   if (input.approval === undefined) {

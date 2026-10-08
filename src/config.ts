@@ -35,6 +35,18 @@ export interface Config {
    */
   askOnAcquire: Volatile<boolean>
   /**
+   * 是否允许 dsh 启动它自己那份独立 profile 的 Chrome.
+   *
+   * 默认关闭. 关闭时插件**永远不会**自行打开 Chrome, 只用"已经连着桥的那个浏览器" —— 也就是
+   * 用户在**自己日常 Chrome** 里加载了扩展的那个. 这是默认推荐的做法: 那份 profile 有用户的
+   * 登录态, 也最不容易引起风控注意.
+   *
+   * 打开它的唯一用处是: 让 dsh 用一份全新的独立 profile 起一个 Chrome. 注意那份 profile 里
+   * **不会**自动带上扩展, 需要用户在那个窗口里单独加载一次, 否则桥永远连不上 —— 那正是"白弹
+   * 一个窗口然后失败"的来源.
+   */
+  launchOwnChrome: Volatile<boolean>
+  /**
    * 与浏览器扩展配对的令牌.
    *
    * 由扩展生成并在它的弹出面板里展示, 用户抄到这里. 握手时必须一致, 否则 dsh 拒绝这条
@@ -84,6 +96,7 @@ export const Config = Schema.object({
   dataDir: Schema.string().volatile(),
   extraArgs: Schema.array(Schema.string()).default([]).volatile(),
   askOnAcquire: Schema.boolean().default(true).volatile(),
+  launchOwnChrome: Schema.boolean().default(false).volatile(),
   pairingToken: Schema.string().default('').volatile(),
   installHostAutomatically: Schema.boolean().default(false).volatile(),
 })

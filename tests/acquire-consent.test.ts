@@ -116,9 +116,16 @@ function makeHarness(approval: unknown, askOnAcquire = true): {
   const config = Config({ askOnAcquire })
   const bridge = { token: 'tok', call: async () => undefined, connectionState: { connected: false } }
   const runtime = new BrowserRuntime(ctx, config, bridge as never)
-  const request = async (agent: Agent, toolName: string, args: unknown = {}) => requestBrowserAccess({
+  const request = async (
+    agent: Agent,
+    toolName: string,
+    args: unknown = {},
+    // 默认按"已经配好且够得着"走, 这样这些用例专注在授权语义上; 就绪前置另有用例.
+    setup: { ready: boolean, gaps: string[], guide: string } = { ready: true, gaps: [], guide: '' },
+  ) => requestBrowserAccess({
     runtime,
     config,
+    setup,
     approval: approval as never,
     agent,
     toolName,
@@ -286,6 +293,25 @@ describe('浏览器驱动权的申请与让出', () => {
     await request(b.agent, 'browser_open')
     await expect(runtime.run(a.agent, new AbortController().signal, async () => 'x'))
       .rejects.toThrow(/归会话 session-b 使用/u)
+  })
+
+  it('没配好时不弹 ask, 而是返回配置说明让模型讲给用户', async () => {
+    const approval = makeApproval('allowed-once')
+    const { request } = makeHarness(approval.service)
+    const { agent } = makeAgent('session-a')
+
+    const result = await request(agent, 'browser_open', {}, {
+      ready: false,
+      gaps: ['dsh 侧还没填配对令牌'],
+      guide: '浏览器还没配置好, 请把步骤讲给用户: 复制扩展面板里的配对令牌填进 pairingToken.',
+    })
+
+    expect(result.kind).toBe('deny')
+    // 关键: 一次审批都没有发生. 没配好时问用户毫无意义, 他同意之后一样用不了.
+    expect(approval.asks).toHaveLength(0)
+    // 返回的是让模型转述给用户的说明, 而不是一句"被拒绝".
+    expect(result.reason).toContain('讲给用户')
+    expect(result.reason).toContain('配对令牌')
   })
 
   it('判定与理由生成的边界', () => {

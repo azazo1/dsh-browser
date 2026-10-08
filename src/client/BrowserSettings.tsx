@@ -103,6 +103,16 @@ function checks(status: StatusPayload): CheckRow[] {
       detail: status.extensionVersion === null ? '扩展尚未连上' : `扩展版本 ${status.extensionVersion}`,
     },
     {
+      key: 'checkLaunch',
+      // 这一项不是"过/不过", 而是说清默认行为: 关闭时插件不会自行打开 Chrome.
+      ok: status.launchOwnChrome || status.bridgeConnected,
+      detail: status.launchOwnChrome
+        ? '允许 dsh 启动自带的独立 profile Chrome (该 profile 需单独加载一次扩展)'
+        : (status.bridgeConnected
+          ? '只用你现有的浏览器 (扩展已连上), 不自行启动 Chrome'
+          : '只用你现有的浏览器; 请打开装了扩展的那个 Chrome'),
+    },
+    {
       key: 'checkPairing',
       // 没配置配对令牌时整条链路都用不了, 所以这一项没通过就是真问题.
       ok: status.pairingConfigured && status.pairingError === null,

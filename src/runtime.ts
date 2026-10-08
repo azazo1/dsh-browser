@@ -21,6 +21,8 @@ import { writeRendezvous } from './bridge/rendezvous.js'
 import { launchChrome } from './chrome/launcher.js'
 import { ChromeNotFoundError, locateChrome } from './chrome/locate.js'
 import { assertUsableExtraArgs, resolvePaths } from './config.js'
+import { evaluateSetup, hostParts } from './setup.js'
+import type { SetupStatus } from './setup.js'
 import type { Config, ResolvedPaths } from './config.js'
 import { inspectHost, installHost } from './native-host/install.js'
 import type { HostInstallStatus } from './native-host/install.js'
@@ -60,6 +62,8 @@ export interface BrowserStatus {
   extensionVersion: string | null
   /** 浏览器求值所需的开关是否已打开; null 表示扩展没连上, 状态未知. */
   userScriptsAvailable: boolean | null
+  /** 是否允许 dsh 启动它自己那份独立 profile 的 Chrome. */
+  launchOwnChrome: boolean
   /** dsh 侧是否已经配置了配对令牌. */
   pairingConfigured: boolean
   /** 握手因配对失败被拒时的原因; null 表示没有发生过. */
@@ -77,21 +81,34 @@ export interface BrowserStatus {
 }
 
 /**
- * 判断是否还需要由 dsh 自己启动浏览器.
+ * 决定这次要用哪个浏览器.
  *
- * 单独抽出来是因为这条判断直接决定用户体验, 却又藏在启动流程里:
+ * 三种结果而不是"启动/不启动"两态, 因为第三种情况必须能说出理由:
  *
- *   - 为 true 时要 spawn Chrome, 用户会看到一个新窗口 (首次使用, 或用户还没在浏览器
- *     里装好扩展);
- *   - 为 false 时**绝不能** spawn: 扩展已经连上桥, 说明用户自己那个浏览器里已经装好
- *     并启用了扩展, 再起一个空 profile 的窗口只会打断他, 而且那个窗口里没有扩展,
+ *   - `reuse`: 扩展已经连着桥, 说明某个浏览器里已经装好并启用了扩展 —— 就用它, 绝不能再
+ *     spawn 一个. 再起一个空 profile 的窗口只会打断用户, 而且那份 profile 里没有扩展,
  *     对任务毫无帮助.
+ *   - `launch`: 没连上, 而且用户明确允许 dsh 启动它自带的那份 Chrome.
+ *   - `refuse`: 没连上, 也不允许自行启动. 这时必须说清"下一步该做什么", 因为用户能做的
+ *     事情(打开自己的 Chrome / 打开 launchOwnChrome)与"什么都不做等重试"完全不同.
  *
- * @param bridgeConnected 扩展当前是否已连上桥.
- * @returns 是否需要启动浏览器.
+ * @param input 判定输入.
+ * @param input.bridgeConnected 扩展是否已连上桥.
+ * @param input.launchOwnChrome 是否允许启动 dsh 自带的 Chrome.
+ * @returns 决策结果.
  */
-export function shouldLaunchBrowser(bridgeConnected: boolean): boolean {
-  return !bridgeConnected
+export function launchDecision(input: { bridgeConnected: boolean, launchOwnChrome: boolean }):
+  { kind: 'reuse' } | { kind: 'launch' } | { kind: 'refuse', reason: string } {
+  if (input.bridgeConnected) return { kind: 'reuse' }
+  if (input.launchOwnChrome) return { kind: 'launch' }
+  return {
+    kind: 'refuse',
+    reason: '扩展还没有连上来, 而本插件被配置为不自行启动 Chrome (launchOwnChrome 未打开). '
+      + '这通常意味着需要用户打开他自己的那个 Chrome —— 扩展装在哪个 Chrome 里, 就打开哪个, '
+      + '并确认它在 chrome://extensions 里是启用状态; 扩展连上来之后重试即可. '
+      + '如果本来就打算让 dsh 用它自己那份独立 profile 的 Chrome, 请打开配置里的 launchOwnChrome; '
+      + '注意那份 profile 需要用户单独加载一次扩展, 否则同样连不上.',
+  }
 }
 
 /** 浏览器没有按预期就绪时抛出. */
@@ -316,6 +333,25 @@ export class BrowserRuntime {
     return true
   }
 
+  /**
+   * 判断现在是否"配好且够得着".
+   *
+   * 这是**该不该征求授权**的前置条件: 没有一条能真正用上的路时, 问用户毫无意义 —— 他同意
+   * 之后也一样用不了, 而那个弹窗本身就是一次打扰.
+   *
+   * @returns 就绪状态与(不就绪时的)配置说明.
+   */
+  async setup(): Promise<SetupStatus> {
+    const status = await this.status()
+    return evaluateSetup({
+      ...hostParts(status.host, this.paths),
+      pairingConfigured: status.pairingConfigured,
+      pairingError: status.pairingError,
+      bridgeConnected: status.bridgeConnected,
+      launchOwnChrome: this.config.launchOwnChrome.get(),
+    })
+  }
+
   /** 采集完整状态; 不启动浏览器, 只做只读探测. */
   async status(): Promise<BrowserStatus> {
     const paths = this.paths
@@ -359,6 +395,7 @@ export class BrowserRuntime {
       bridgeConnected: bridgeState.connected,
       extensionVersion: bridgeState.extensionVersion,
       userScriptsAvailable: bridgeState.userScriptsAvailable,
+      launchOwnChrome: this.config.launchOwnChrome.get(),
       pairingConfigured: this.config.pairingToken.get() !== '',
       pairingError: bridgeState.pairingError,
       boundTabId: bridgeState.boundTabId,
@@ -483,17 +520,15 @@ export class BrowserRuntime {
   private async launchOnce(signal: AbortSignal): Promise<void> {
     const paths = this.paths
 
-    // 扩展已经连着桥, 说明用户自己那个 Chrome 里已经装好并启用了扩展 —— 那就直接用
-    // 它, 不要再起一个.
-    //
-    // 这一条不是优化而是必要的: 用户完全可能(而且现在就是)把扩展装在自己的日常
-    // Chrome 里, 这时若还按"由 dsh 启动 Chrome"的路径走, 每次首次工具调用都会额外
-    // 弹出一个空 profile 的 Chrome 窗口打断用户, 而且那个窗口里并没有扩展, 对任务
-    // 毫无帮助.
-    if (!shouldLaunchBrowser(this.bridge.connectionState.connected)) {
+    const decision = launchDecision({
+      bridgeConnected: this.bridge.connectionState.connected,
+      launchOwnChrome: this.config.launchOwnChrome.get(),
+    })
+    if (decision.kind === 'reuse') {
       this.ctx.logger.info('dsh-browser: 扩展已连接, 复用用户现有的浏览器, 不再启动新的 Chrome')
       return
     }
+    if (decision.kind === 'refuse') throw new BrowserUnavailableError(decision.reason)
 
     const extraArgs = this.config.extraArgs.get()
     assertUsableExtraArgs(extraArgs)

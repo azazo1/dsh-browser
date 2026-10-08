@@ -18,6 +18,7 @@ export type BrowserSettingsKey =
   | 'checkBinding'
   | 'checkEvaluate'
   | 'checkPairing'
+  | 'checkLaunch'
   | 'install'
   | 'uninstall'
   | 'refresh'
@@ -51,6 +52,7 @@ export const zh: Record<BrowserSettingsKey, string> = {
   checkBinding: '绑定标签页',
   checkEvaluate: '浏览器求值',
   checkPairing: '配对令牌',
+  checkLaunch: '浏览器启动方式',
   install: '安装连接组件',
   uninstall: '卸载连接组件',
   refresh: '刷新状态',
@@ -85,6 +87,7 @@ export const en: Record<BrowserSettingsKey, string> = {
   checkBinding: 'Bound tab',
   checkEvaluate: 'In-page evaluate',
   checkPairing: 'Pairing token',
+  checkLaunch: 'Browser launch',
   install: 'Install connection pieces',
   uninstall: 'Uninstall connection pieces',
   refresh: 'Refresh',
