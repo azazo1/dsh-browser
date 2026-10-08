@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extName__",
+  "description": "__MSG_extDescription__",
+  "default_locale": "zh_CN",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6JgVtSyjbMSxn1LpKDbLyyj47Y2eZJ5fYUwHyvKezb7VDyhT69c5cBg1pcu1Vx2qRgDlG4TZRswLc7I1XLE3sehivJy6LB4xlquAmN/U4na1/eSTeQ00QHLHC2YE7y3gW2yyIAuoal2Fz9OSwWkPqhV5Hx4VdIWcpVtKZOZSRc/+WuWhb+we+xbLtm2OZ/ztY5b3xi3TDJ2uZWtNbbnsrWR7KKZG/BXt+WfxFn9knRDQH4dGI6FTbUTeRJCTdnGMDSoWcKNNeh3G6a89QWXfeQxHX69q7np5Jbkv6r0k7AE/5QyRuHW1VMPHCcHJNVmP0/JiBu38D+pA5wifKKEhxwIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "scripting",
+    "tabs",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "__MSG_extName__",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

@@ -1,0 +1,14 @@
+# dsh-browser 的 bundle patch.
+#
+# 这里插入插件自身的 Host entry. row 的 id 同时是配置表单的命名空间, 用户与部署方
+# 在更靠后的 patch 层里按这个 id 覆盖 config:
+#
+#   - id: dsh-browser
+#     config:
+#       chromePath: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+#       confirmFirstLaunch: false
+#
+# 注意本插件不注册 cordis 服务之外的健康检查; 载入顺序无关紧要.
+- insert:
+    - id: dsh-browser
+      name: 'dsh-browser'

@@ -1,0 +1,11 @@
+node_modules/
+__pycache__/
+*.py[cod]
+*.tgz
+.DS_Store
+lib/*.map
+.tmp/
+package-lock.json
+
+# 扩展私钥: 只在本机用于打包 crx, 泄露等于任何人都能签出同 ID 的扩展.
+.tmp/extension-key.pem

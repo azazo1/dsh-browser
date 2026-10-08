@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>dsh-browser</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <p class="headline"><span id="dot" class="dot"></span><span id="headline">正在检查...</span></p>
+      <p id="detail" class="detail">正在读取状态...</p>
+      <p id="binding" class="binding">尚未绑定标签页</p>
+      <button id="reconnect" type="button">重新连接</button>
+      <p class="hint">
+        本扩展不使用 Chrome 调试协议, 它通过 native messaging 与 dsh 通信.
+        连不上时请在 dsh 的插件配置页点「安装连接组件」.
+      </p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

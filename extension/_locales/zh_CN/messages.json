@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "dsh Browser",
+    "description": "扩展在浏览器工具栏上的显示名."
+  },
+  "extDescription": {
+    "message": "把 dsh 连接到本机 Google Chrome 的标签页. 不使用 Chrome 调试协议, 通过 native messaging 通信, 页面以带编号的文本交给模型操作.",
+    "description": "扩展商店与 chrome://extensions 页面显示的简介, 长度上限 132 字符."
+  }
+}

@@ -1,0 +1,155 @@
+/**
+ * dsh-browser 线协议.
+ *
+ * 这份文件被两侧同时引用, 是唯一的协议真源:
+ *   - 扩展侧 (extension/src/**): 在浏览器里执行操作.
+ *   - 宿主侧 (src/**): 把 Agent 的工具调用翻译成这里的 call.
+ *
+ * 两段链路:
+ *   宿主 <-> NM host   走 WebSocket (回环地址, 路径 /ext/bridge, 需要 token)
+ *   NM host <-> 扩展   走 Chrome native messaging (stdio, 4 字节小端长度前缀 + JSON)
+ *
+ * NM host 只做搬运, 不解析业务语义, 所以两段用同一套 JSON 帧.
+ */
+
+import type { BrowserMethod } from './methods.js'
+
+/** 协议版本; 两侧不一致时直接拒绝, 避免半懂不懂地跑. */
+export const PROTOCOL_VERSION = 1
+
+/**
+ * native messaging 清单名.
+ *
+ * 这个名字同时决定三件事, 改动等于不兼容变更:
+ *   - Chrome 查找清单文件的文件名.
+ *   - 扩展调用 `chrome.runtime.connectNative(<name>)` 的参数.
+ *   - 清单里 `allowed_origins` 必须精确匹配本扩展 ID.
+ */
+export const NATIVE_HOST_NAME = 'com.azazo1.dsh_browser'
+
+/** 宿主 WebSocket 升级路由的路径. */
+export const BRIDGE_PATH = '/ext/bridge'
+
+/** 宿主与扩展协商的渲染宽度上限, 超过就截断, 防止把上下文撑爆. */
+export const MAX_TEXT_CHARS = 120_000
+
+/** 一次工具调用的默认截止时间; 扩展超时会回一个错误而不是一直挂着. */
+export const DEFAULT_CALL_TIMEOUT_MS = 30_000
+
+/** 页面快照里一个可交互元素的编号条目. */
+export interface SnapshotElement {
+  /** 快照内的稳定编号, 后续 click / fill 用它寻址. */
+  index: number
+  /** 元素角色, 例如 button / link / textbox. */
+  role: string
+  /** 无障碍名或可见文本, 已被截断. */
+  name: string
+  /** 补充说明, 例如输入框类型, 是否禁用, 是否勾选. */
+  note?: string
+}
+
+/** 一次页面快照的结果. */
+export interface SnapshotResult {
+  url: string
+  title: string
+  /** 快照编号; 点击时带回, 避免用陈旧编号操作已变的页面. */
+  token: string
+  /** 页面主体文本. */
+  text: string
+  /** 可交互元素清单. */
+  elements: SnapshotElement[]
+  /** 文本或元素被截断时为 true. */
+  truncated: boolean
+}
+
+/** 一个浏览器标签页的描述. */
+export interface TabInfo {
+  /** `chrome.tabs` 的标签页 id. */
+  id: number
+  url: string
+  title: string
+  active: boolean
+  /** 该标签页是否属于本扩展可操作的窗口. */
+  windowId: number
+}
+
+/** 扩展发给宿主的握手信息. */
+export interface HelloPayload {
+  protocolVersion: number
+  extensionId: string
+  /** 扩展清单版本. */
+  version: string
+  /** 扩展当前是否已绑定到一个标签页. */
+  boundTabId: number | null
+}
+
+/** 宿主发往扩展的调用帧. */
+export interface CallFrame {
+  kind: 'call'
+  /** 单调递增的调用号, 用于配对响应. */
+  id: number
+  method: BrowserMethod
+  args: unknown
+  /** 扩展侧的截止时间; 超时后必须回错误, 不能继续挂着. */
+  timeoutMs: number
+}
+
+/** 扩展对一次调用的成功响应. */
+export interface ResultFrame {
+  kind: 'result'
+  id: number
+  ok: true
+  value: unknown
+}
+
+/** 扩展对一次调用的失败响应. */
+export interface ErrorFrame {
+  kind: 'error'
+  id: number
+  ok?: false
+  error: {
+    /** 机器可读的错误类别, 让工具层能给出可自我纠正的提示. */
+    code: string
+    message: string
+  }
+}
+
+/** 扩展主动上报的事件, 不需要配对. */
+/**
+ * 扩展主动上报, 或 native host 上报自身链路状态的事件.
+ *
+ * `link-ready` / `link-lost` 由 native host 发出, 而不是扩展: 扩展自己的
+ * `connectNative` 只证明"host 进程起来了", 并不证明 host 连上了 dsh. 这两个事件才
+ * 是链路真实状态的唯一来源, 界面必须据此显示, 否则会出现"显示已连接但 dsh 里什么都
+ * 没有"这种误导.
+ */
+export interface EventFrame {
+  kind: 'event'
+  event: 'hello' | 'tab-changed' | 'detached' | 'link-ready' | 'link-lost'
+  payload: unknown
+}
+
+/** 扩展发往宿主的所有帧. */
+export type OutboundFrame = ResultFrame | ErrorFrame | EventFrame
+
+/** 宿主发往扩展的所有帧. */
+export type InboundFrame = CallFrame
+
+/** 错误类别; 工具层据此生成可自我纠正的中文提示. */
+export type ErrorCode =
+  /** 页面或标签页已经不存在, 需要重新快照或重新打开. */
+  | 'stale-target'
+  /** 编号在最近一次快照里不存在. */
+  | 'unknown-element'
+  /** 目标标签页不在前台, 需要先激活. */
+  | 'tab-not-active'
+  /** 扩展尚未绑定标签页. */
+  | 'no-binding'
+  /** 注入脚本被该页面拒绝 (例如 chrome:// 或扩展页). */
+  | 'injection-blocked'
+  /** 扩展开关关闭了该操作. */
+  | 'forbidden'
+  /** 超时. */
+  | 'timeout'
+  /** 其余未分类失败. */
+  | 'internal'

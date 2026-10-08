@@ -1,0 +1,76 @@
+# 构建, 类型检查与测试.
+#
+# 这个仓库有四个构建面 (Host 半区, native messaging host, Client 半区, 扩展产物),
+# 而扩展产物里嵌着一份固定的公钥 —— 它决定扩展 id, 又是 native messaging 清单里
+# allowed_origins 的依据. 因此 CI 必须校验"manifest 里的 key 存在且 id 可派生",
+# 否则打出来的产物装到用户机器上只会表现为"扩展一直未连接".
+name: ci
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 生成扩展图标
+        run: python3 scripts/make-icons.py
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 构建
+        run: pnpm build
+
+      - name: 测试
+        run: pnpm test
+
+      - name: 校验扩展身份与产物完整性
+        run: |
+          set -eu
+          id=$(node scripts/extension-identity.mjs id assets/extension/manifest.json)
+          echo "扩展 id: $id"
+          test -n "$id"
+          # 扩展 id 必须与随包 key 相符; 换个目录重新派生一次, 结果必须一致.
+          cp -r assets/extension /tmp/extension-moved
+          moved=$(node scripts/extension-identity.mjs id /tmp/extension-moved/manifest.json)
+          if [ "$id" != "$moved" ]; then
+            echo "::error::扩展 id 随目录变化 ($id != $moved), 说明 key 字段没有生效"
+            exit 1
+          fi
+          # 清单引用的文件都要在.
+          for file in background.js popup.html popup.css assets/icons/icon-128.png _locales/zh_CN/messages.json; do
+            test -f "assets/extension/$file" || { echo "::error::缺少 $file"; exit 1; }
+          done
+
+      - name: 打包发布产物
+        run: |
+          set -eu
+          mkdir -p dist
+          # 插件本体与扩展产物一起打包, 用户装的是一个自洽的目录.
+          pnpm pack --pack-destination dist
+          (cd assets/extension && zip -qr "../../dist/dsh-browser-extension.zip" .)
+          (cd dist && shasum -a 256 ./* > SHA256SUMS)
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-browser
+          path: dist/*
