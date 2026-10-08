@@ -139,7 +139,11 @@ export function formatStatus(
     : (status.launchStandaloneChromeProfile && status.launchArgs === null
       ? '独立 profile 尚未启动 (日常 Chrome 里的连接不算)'
       : '未连接')}`)
-  lines.push(`绑定标签页: ${status.boundTabId === null ? '无' : `id=${String(status.boundTabId)}`}`)
+  const linked = extensionLinkCounts(status)
+  if (status.launchStandaloneChromeProfile) {
+    lines.push(`对端 profile: ${status.peerUserDataDir ?? '未探测到'}`)
+  }
+  lines.push(`绑定标签页: ${!linked || status.boundTabId === null ? '无' : `id=${String(status.boundTabId)}`}`)
   // 独占: 同一时刻只有一个会话能驱动这个浏览器. 这里要说清两件事 —— 现在归谁, 以及
   // "本会话能不能直接用", 因为后者决定了下一次调用会不会弹审批.
   const holder = status.holderId === null ? '无会话持有' : `会话 ${status.holderId}`
@@ -151,7 +155,7 @@ export function formatStatus(
   lines.push(`驱动权: ${holder}${mine}`)
   // 求值能力取决于一个只能由用户手动打开的开关, 所以这里直接说清楚, 免得模型反复试
   // browser_evaluate 才发现不能用.
-  if (status.userScriptsAvailable !== null) {
+  if (linked && status.userScriptsAvailable !== null) {
     lines.push(`浏览器求值 (browser_evaluate): ${status.userScriptsAvailable
       ? '可用'
       : '未启用, 需要在扩展详情页打开 "Allow User Scripts" 开关; 期间可用 browser_query 取数据'}`)

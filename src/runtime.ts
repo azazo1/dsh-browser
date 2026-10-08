@@ -22,6 +22,7 @@ import { launchChrome } from './chrome/launcher.js'
 import { ChromeNotFoundError, locateChrome } from './chrome/locate.js'
 import { assertUsableExtraArgs, resolvePaths } from './config.js'
 import { evaluateSetup, hostParts } from './setup.js'
+import { extensionLinkCounts } from '../shared/status.js'
 import type { SetupStatus } from './setup.js'
 import type { Config, ResolvedPaths } from './config.js'
 import { inspectHost, installHost } from './native-host/install.js'
@@ -84,6 +85,8 @@ export interface BrowserStatus {
   bridgeError: string | null
   /** 本次运行实际使用的启动参数. */
   launchArgs: string[] | null
+  /** 当前连接所属 Chrome 的 user-data-dir; 探测不到为 null. */
+  peerUserDataDir: string | null
   /** 为了让状态可用, 需要用户或模型做什么. */
   nextSteps: string[]
 }
@@ -393,19 +396,24 @@ export class BrowserRuntime {
     if (hostError !== null) nextSteps.push(`连接组件状态无法读取: ${hostError}`)
     else if (host !== null) nextSteps.push(...host.manualSteps)
     const standalone = this.config.launchStandaloneChromeProfile.get()
-    const launchedStandalone = standalone && this.launchArgs !== null
+    const linked = extensionLinkCounts({
+      launchStandaloneChromeProfile: standalone,
+      bridgeConnected: bridgeState.connected,
+      launchArgs: this.launchArgs,
+      profileDir: paths.profileDir,
+      peerUserDataDir: bridgeState.peerUserDataDir,
+    })
     if (bridgeState.pairingError !== null) {
       // 配对失败是当前挡住使用的原因; 再写"去装扩展"会把用户带偏.
       nextSteps.length = 0
       nextSteps.push(`配对没通过: ${bridgeState.pairingError}`)
-    } else if (standalone && !launchedStandalone) {
-      // 日常 Chrome 连着也不算: 打开这个开关就是选择另一份 profile.
+    } else if (linked) nextSteps.length = 0
+    else if (standalone && this.launchArgs === null) {
       nextSteps.push(
         '独立 profile 尚未启动. 第一次使用时会另开窗口, 不会复用日常 Chrome; '
         + '请在那个窗口打开 chrome://extensions, 加载扩展产物.',
       )
-    } else if (bridgeState.connected) nextSteps.length = 0
-    else if (standalone) {
+    } else if (standalone) {
       nextSteps.push(
         '独立 profile 已启动但扩展还没连上来: 请在那个窗口打开 chrome://extensions, '
         + '加载扩展产物. 日常 Chrome 里已经连上的不算.',
@@ -431,6 +439,7 @@ export class BrowserRuntime {
       boundTabId: bridgeState.boundTabId,
       bridgeError: bridgeState.lastError,
       launchArgs: this.launchArgs,
+      peerUserDataDir: bridgeState.peerUserDataDir,
       holderId: this.grantedId,
       nextSteps,
     }

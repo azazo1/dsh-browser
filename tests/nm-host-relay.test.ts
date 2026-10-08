@@ -65,7 +65,10 @@ async function startHarness(): Promise<Harness> {
     startedAt: new Date().toISOString(),
   }), 'utf8')
 
-  const child = spawn(process.execPath, [HOST_SCRIPT, rendezvous], { stdio: 'pipe' })
+  const child = spawn(process.execPath, [HOST_SCRIPT, rendezvous], {
+    stdio: 'pipe',
+    env: { ...process.env, DSH_BROWSER_USER_DATA_DIR: '/tmp/dsh-browser/profile' },
+  })
   const stdoutFrames: unknown[] = []
   let buffer = Buffer.alloc(0)
   child.stdout.on('data', (chunk: Buffer) => {
@@ -138,6 +141,27 @@ describe('native messaging host 的双向转发', () => {
     ))
     const call = harness.stdoutFrames.find(frame => (frame as { kind?: string }).kind === 'call')
     expect(call).toEqual({ kind: 'call', id: 7, method: 'tabs.list', args: {}, timeoutMs: 1_000 })
+  })
+
+  it('hello 帧会带上探测到的 user-data-dir', async () => {
+    harness = await startHarness()
+    writeFrame(harness.child, {
+      kind: 'event',
+      event: 'hello',
+      payload: { protocolVersion: 1, extensionId: 'x', version: '0.1.0', boundTabId: null },
+    })
+    await waitFor(() => harness!.received.length > 0)
+    expect(JSON.parse(harness.received[0] ?? '{}')).toEqual({
+      kind: 'event',
+      event: 'hello',
+      payload: {
+        protocolVersion: 1,
+        extensionId: 'x',
+        version: '0.1.0',
+        boundTabId: null,
+        userDataDir: '/tmp/dsh-browser/profile',
+      },
+    })
   })
 
   it('stdin -> host -> dsh: 扩展的帧原样到达 dsh', async () => {

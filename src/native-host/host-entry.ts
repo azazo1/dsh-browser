@@ -21,6 +21,7 @@
 
 import { WebSocket } from 'ws'
 import { readFile } from 'node:fs/promises'
+import { detectChromeUserDataDir } from './chrome-profile.js'
 
 /** 会合文件的字段; 由 dsh 侧写入. */
 interface Rendezvous {
@@ -118,10 +119,30 @@ const outbound: unknown[] = []
 let socket: WebSocket | null = null
 let closing = false
 
+/** 探测到的 Chrome user-data-dir; 启动时填一次, hello 带给 dsh. */
+let chromeUserDataDir: string | null = null
+
+/**
+ * hello 帧补上 user-data-dir. 其它帧原样转发.
+ *
+ * @param frame 扩展发来的帧.
+ * @returns 转给 dsh 的帧.
+ */
+function stampHello(frame: unknown): unknown {
+  if (frame === null || typeof frame !== 'object') return frame
+  const record = frame as { kind?: string, event?: string, payload?: unknown }
+  if (record.kind !== 'event' || record.event !== 'hello') return frame
+  const payload = (record.payload !== null && typeof record.payload === 'object')
+    ? record.payload as Record<string, unknown>
+    : {}
+  return { ...record, payload: { ...payload, userDataDir: chromeUserDataDir } }
+}
+
 /** 向 dsh 发一帧; 还没连上就排队. */
 function toHost(frame: unknown): void {
+  const stamped = stampHello(frame)
   if (socket !== null && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(frame))
+    socket.send(JSON.stringify(stamped))
     return
   }
   if (outbound.length >= MAX_QUEUE) {
@@ -129,7 +150,7 @@ function toHost(frame: unknown): void {
     closing = true
     process.exit(0)
   }
-  outbound.push(frame)
+  outbound.push(stamped)
 }
 
 /** 连上 dsh 之前先攒着的帧, 连上后一次性补发. */
@@ -206,6 +227,9 @@ async function attempt(): Promise<AttemptOutcome> {
 
 /** 主循环: 一直重连, 直到 stdin 结束. */
 async function main(): Promise<void> {
+  chromeUserDataDir = await detectChromeUserDataDir()
+  log(`Chrome user-data-dir: ${chromeUserDataDir ?? '(未探测到)'}`)
+
   const framer = new StdinFramer(toHost, () => {
     // Chrome 关掉 stdin 表示扩展侧已经断开, 本进程应当退出.
     closing = true

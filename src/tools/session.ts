@@ -8,6 +8,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { DEFAULT_CALL_TIMEOUT_MS } from '../../shared/protocol.js'
+import { extensionLinkCounts } from '../../shared/status.js'
 import { formatStatus, formatTabs, requireAgent, runBrowser } from './shared.js'
 import type { ToolDeps } from './shared.js'
 
@@ -67,7 +68,7 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
       })
       const lines = ['Chrome 已就绪, 扩展通道通畅.', '', formatStatus(status)]
       return {
-        ready: status.bridgeConnected,
+        ready: extensionLinkCounts(status),
         chromePath: status.chrome?.path ?? '(未找到)',
         profileDir: status.profileDir,
         text: lines.join('\n'),
@@ -97,7 +98,10 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     execute: async (_args, exec) => {
       const current = await deps.runtime.status()
       // 绑定了标签页也不代表能操作: 还要扩展连着.
-      const ready = current.chrome !== null && current.host?.manifestReady === true && current.bridgeConnected && current.pairingError === null
+      const ready = current.chrome !== null
+        && current.host?.manifestReady === true
+        && current.pairingError === null
+        && extensionLinkCounts(current)
       // 带上本会话身份, 让摘要能回答"我现在能不能直接用"这个最要紧的问题.
       return { ready, text: formatStatus(current, requireAgent(exec).id) }
     },

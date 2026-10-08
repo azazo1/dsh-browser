@@ -20,6 +20,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { WebSocketServer, WebSocket } from 'ws'
 import { BRIDGE_PATH, DEFAULT_CALL_TIMEOUT_MS, PROTOCOL_VERSION } from '../../shared/protocol.js'
+import { sameUserDataDir } from '../../shared/status.js'
 import type { ErrorFrame, HelloPayload, InboundFrame, OutboundFrame, ResultFrame } from '../../shared/protocol.js'
 import type { BrowserMethod, MethodArgs, MethodResult } from '../../shared/methods.js'
 
@@ -52,6 +53,10 @@ export interface BridgeConnectionState {
    * null 表示扩展尚未连上, 状态未知 (而不是"不支持").
    */
   userScriptsAvailable: boolean | null
+  /**
+   * 当前连接所属 Chrome 的 `--user-data-dir`; 探测不到或尚未握手为 null.
+   */
+  peerUserDataDir: string | null
 }
 
 /** 一次调用的失败; code 与协议里的错误类别一致, 便于工具层生成提示. */
@@ -106,6 +111,7 @@ export class BridgeServer {
     lastError: null,
     pairingError: null,
     userScriptsAvailable: null,
+    peerUserDataDir: null,
   }
 
   /**
@@ -113,11 +119,14 @@ export class BridgeServer {
    * @param token 本次运行的握手令牌.
    * @param expectedPairingToken 取当前配置的配对令牌; 空串表示还没配对. 用取值的函数而不
    *   是值本身, 因为它是 volatile 配置: 用户改了之后要立刻生效, 不该重挂插件.
+   * @param expectedUserDataDir 独立 profile 开着时返回那份目录, 关掉时返回 null.
+   *   非 null 时只接受对端报上来的 user-data-dir 与它一致的连接.
    */
   constructor(
     private readonly ctx: Context,
     private readonly handshakeToken: string,
     private readonly expectedPairingToken: () => string,
+    private readonly expectedUserDataDir: () => string | null = () => null,
   ) {
     this.wss.on('connection', socket => { this.attach(socket) })
   }
@@ -161,13 +170,40 @@ export class BridgeServer {
    */
   private rejectPairing(socket: WebSocket, reason: string): void {
     this.ctx.logger.warn(`dsh-browser: 拒绝配对失败的连接: ${reason}`)
-    this.setState({ pairingError: reason, connected: false })
+    // 另一条已经握过手的连接还活着时, 不要把全局状态打成"没连上": 那是日常 Chrome 的
+    // 失败握手, 独立 profile 那条不该被它带崩.
+    if (this.live === socket || this.live === null) {
+      if (this.live === socket) this.live = null
+      this.setState({ pairingError: reason, connected: false })
+    }
     try {
       socket.send(JSON.stringify({ kind: 'event', event: 'pairing-rejected', payload: { reason } }))
     } catch (error) {
       this.ctx.logger.warn(`dsh-browser: 发送配对拒绝原因失败: ${String(error)}`)
     }
     socket.close(1008, 'pairing rejected')
+  }
+
+  /**
+   * 独立 profile 开着时, 拒绝不是那份窗口的连接.
+   *
+   * @param socket 要拒绝的连接.
+   * @param reason 记入日志的原因.
+   */
+  private rejectProfile(socket: WebSocket, reason: string): void {
+    this.ctx.logger.warn(`dsh-browser: 拒绝非独立 profile 的连接: ${reason}`)
+    if (this.live === socket) {
+      this.live = null
+      this.setState({
+        connected: false,
+        extensionVersion: null,
+        boundTabId: null,
+        userScriptsAvailable: null,
+        peerUserDataDir: null,
+      })
+      this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
+    }
+    socket.close(1008, 'profile rejected')
   }
 
   /**
@@ -199,6 +235,19 @@ export class BridgeServer {
    */
   syncPairing(): void {
     this.enforcePairing(false)
+    this.enforceProfile()
+  }
+
+  /**
+   * 开关中途打开时, 日常 Chrome 那条已经握过手的连接必须立刻让位.
+   */
+  private enforceProfile(): void {
+    const expected = this.expectedUserDataDir()
+    if (expected === null) return
+    if (!this.state.connected) return
+    const peer = this.state.peerUserDataDir
+    if (peer !== null && sameUserDataDir(peer, expected)) return
+    this.dropLive('独立 profile 不接受当前这条连接')
   }
 
   /** 本次运行的握手令牌; 由运行时写进会合文件供 native host 使用. */
@@ -230,6 +279,7 @@ export class BridgeServer {
       extensionVersion: null,
       boundTabId: null,
       userScriptsAvailable: null,
+      peerUserDataDir: null,
     })
     this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
     socket.close(1000, 'standalone-switch')
@@ -360,19 +410,15 @@ export class BridgeServer {
     })
   }
 
-  /** 接管一条新连接, 并让旧连接让位. */
+  /**
+   * 登记一条新连接, 等 hello 通过后再提升为 live.
+   *
+   * 不能在 socket 一上来就替换 live: 日常 Chrome 的 host 也会连过来, 若先占坑再因
+   * profile 不匹配被拒, 会把已经握好手的独立 profile 连接顶掉.
+   *
+   * @param socket 新的 native host 连接.
+   */
   private attach(socket: WebSocket): void {
-    const previous = this.live
-    this.live = socket
-    if (previous !== null && previous !== socket) {
-      this.note('有新的 native host 连接上来, 关闭之前那条')
-      previous.close(1000, 'superseded')
-    }
-    // 刻意**不**在这里置 connected: 连接刚建立时还没收到 hello, 也就还没核对配对令牌.
-    // 早置会让状态面短暂谎报"已连接", 而那个连接马上会被配对检查关掉 —— 用户看到的就是
-    // "已连接"与"没配对"同时成立这种自相矛盾的画面.
-    this.peerPairingToken = undefined
-
     socket.on('message', (data) => {
       let frame: OutboundFrame
       try {
@@ -389,11 +435,45 @@ export class BridgeServer {
       if (this.live !== socket) return
       this.live = null
       this.peerPairingToken = undefined
-      this.setState({ connected: false, extensionVersion: null, boundTabId: null, userScriptsAvailable: null })
+      this.setState({
+        connected: false,
+        extensionVersion: null,
+        boundTabId: null,
+        userScriptsAvailable: null,
+        peerUserDataDir: null,
+      })
       this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
     })
     socket.on('error', (error) => {
       this.note(`桥连接出错: ${String(error)}`)
+    })
+  }
+
+  /**
+   * 握手通过后把这条连接提升为 live, 顶掉之前那条.
+   *
+   * @param socket 刚通过校验的连接.
+   * @param hello 握手载荷.
+   * @param userDataDir 对端报上的 profile 目录.
+   */
+  private promote(socket: WebSocket, hello: Partial<HelloPayload>, userDataDir: string | null): void {
+    const previous = this.live
+    this.live = socket
+    this.peerPairingToken = hello.pairingToken
+    if (previous !== null && previous !== socket) {
+      this.note('有新的 native host 连接上来, 关闭之前那条')
+      previous.close(1000, 'superseded')
+    }
+    if (hello.protocolVersion !== PROTOCOL_VERSION) {
+      this.note(`扩展的协议版本 ${String(hello.protocolVersion)} 与本插件 ${String(PROTOCOL_VERSION)} 不一致, 请重新加载扩展`)
+    }
+    this.setState({
+      pairingError: null,
+      connected: true,
+      extensionVersion: typeof hello.version === 'string' ? hello.version : null,
+      boundTabId: typeof hello.boundTabId === 'number' ? hello.boundTabId : null,
+      userScriptsAvailable: typeof hello.userScripts === 'boolean' ? hello.userScripts : null,
+      peerUserDataDir: userDataDir,
     })
   }
 
@@ -405,6 +485,7 @@ export class BridgeServer {
    */
   private handleFrame(frame: OutboundFrame, socket: WebSocket): void {
     if (frame.kind === 'result') {
+      if (this.live !== socket) return
       const result = frame as ResultFrame
       const pending = this.pending.get(result.id)
       if (pending === undefined) return
@@ -413,6 +494,7 @@ export class BridgeServer {
       return
     }
     if (frame.kind === 'error') {
+      if (this.live !== socket) return
       const failure = frame as ErrorFrame
       const pending = this.pending.get(failure.id)
       if (pending === undefined) return
@@ -428,19 +510,23 @@ export class BridgeServer {
           this.rejectPairing(socket, pairingFailure)
           return
         }
-        this.peerPairingToken = hello.pairingToken
-        this.setState({ pairingError: null })
-        if (hello.protocolVersion !== PROTOCOL_VERSION) {
-          this.note(`扩展的协议版本 ${String(hello.protocolVersion)} 与本插件 ${String(PROTOCOL_VERSION)} 不一致, 请重新加载扩展`)
+        const expectedDir = this.expectedUserDataDir()
+        const reportedDir = typeof hello.userDataDir === 'string' && hello.userDataDir !== ''
+          ? hello.userDataDir
+          : null
+        if (expectedDir !== null && (reportedDir === null || !sameUserDataDir(reportedDir, expectedDir))) {
+          this.rejectProfile(
+            socket,
+            reportedDir === null
+              ? '这条连接没有报上 user-data-dir, 独立 profile 开着时不能当成目标窗口'
+              : `这条连接来自 ${reportedDir}, 不是独立 profile ${expectedDir}`,
+          )
+          return
         }
-        this.setState({
-          connected: true,
-          extensionVersion: typeof hello.version === 'string' ? hello.version : null,
-          boundTabId: typeof hello.boundTabId === 'number' ? hello.boundTabId : null,
-          // 老版本扩展不会报这个字段; 缺失时按"未知"而不是"不支持"处理.
-          userScriptsAvailable: typeof hello.userScripts === 'boolean' ? hello.userScripts : null,
-        })
+        this.promote(socket, hello, reportedDir)
+        return
       }
+      if (this.live !== socket) return
       if (frame.event === 'tab-changed' || frame.event === 'detached') {
         const payload = frame.payload as { tabId?: number }
         this.setState({

@@ -101,7 +101,7 @@ export function checks(status: StatusPayload): CheckRow[] {
  * @returns 还没拉起为 true.
  */
 function standalonePending(status: StatusPayload): boolean {
-  return status.launchStandaloneChromeProfile && status.launchArgs === null
+  return status.launchStandaloneChromeProfile && !extensionLinkCounts(status) && status.launchArgs === null
 }
 
 /**

@@ -41,6 +41,7 @@ const OK_STATUS: StatusPayload = {
   pairingError: null,
   userScriptsAvailable: true,
   launchArgs: null,
+  peerUserDataDir: null,
   manualSteps: [],
   ready: true,
 }
@@ -130,17 +131,28 @@ describe('配置页检查清单', () => {
       launchStandaloneChromeProfile: true,
       bridgeConnected: true,
       launchArgs: null,
+      profileDir: '/data/dsh-browser/profile',
+      peerUserDataDir: '/Users/me/Library/Application Support/Google/Chrome',
     })).toBe(false)
     expect(extensionLinkCounts({
       launchStandaloneChromeProfile: false,
       bridgeConnected: true,
       launchArgs: null,
+      profileDir: '/data/dsh-browser/profile',
+    })).toBe(true)
+    expect(extensionLinkCounts({
+      launchStandaloneChromeProfile: true,
+      bridgeConnected: true,
+      launchArgs: null,
+      profileDir: '/data/dsh-browser/profile',
+      peerUserDataDir: '/data/dsh-browser/profile',
     })).toBe(true)
     // 打开这个开关就是选择另一份环境; 桥上那条连接属于日常窗口, 拿它报绿灯会让人以为已经在用独立 profile.
     const pending = withPatch({
       launchStandaloneChromeProfile: true,
       launchArgs: null,
       bridgeConnected: true,
+      peerUserDataDir: '/Users/me/Library/Application Support/Google/Chrome',
       userScriptsAvailable: true,
       boundTabId: 42,
     })
@@ -164,9 +176,19 @@ describe('配置页检查清单', () => {
       launchStandaloneChromeProfile: true,
       launchArgs: ['--user-data-dir=/data/dsh-browser/profile'],
       bridgeConnected: true,
+      peerUserDataDir: '/data/dsh-browser/profile',
     })
     expect(stateOf(launched, 'checkExtension')).toBe('done')
     expect(stateOf(launched, 'checkEvaluate')).toBe('done')
+
+    // dsh 重启后 launchArgs 没了, 但独立窗口还开着, 对端报上同一份目录就算连上.
+    const afterRestart = withPatch({
+      launchStandaloneChromeProfile: true,
+      launchArgs: null,
+      bridgeConnected: true,
+      peerUserDataDir: '/data/dsh-browser/profile',
+    })
+    expect(stateOf(afterRestart, 'checkExtension')).toBe('done')
 
     const waiting = withPatch({
       launchStandaloneChromeProfile: true,

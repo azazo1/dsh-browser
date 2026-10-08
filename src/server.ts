@@ -118,6 +118,7 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
     pairingConfigured: status.pairingConfigured,
     pairingError: status.pairingError,
     launchArgs: status.launchArgs,
+    peerUserDataDir: status.peerUserDataDir,
     manualSteps: status.nextSteps,
     // 跟 setup 同一条路: 独立 profile 开着时不要求此刻已经有扩展连着 (那可能是日常 Chrome).
     ready: status.chrome !== null && evaluateSetup({

@@ -26,7 +26,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { BridgeServer } from './bridge/server.js'
 import { newToken } from './bridge/rendezvous.js'
-import { Config } from './config.js'
+import { Config, resolvePaths } from './config.js'
 import type { Config as ConfigShape } from './config.js'
 import { requestBrowserAccess } from './acquire.js'
 import { installHost } from './native-host/install.js'
@@ -93,7 +93,12 @@ const GUIDANCE = `本会话的 browser_* 工具驱动一个由 dsh 启动的持�
  */
 export function apply(ctx: Context, input: ConfigShape): void {
   // 桥的握手令牌每次启动重新生成; native host 从会合文件里读它.
-  const bridge = new BridgeServer(ctx, newToken(), () => input.pairingToken.get())
+  const bridge = new BridgeServer(
+    ctx,
+    newToken(),
+    () => input.pairingToken.get(),
+    () => input.launchStandaloneChromeProfile.get() ? resolvePaths(input).profileDir : null,
+  )
   BridgeServer.mount(ctx, bridge)
   ctx.effect(() => () => { bridge.dispose() }, 'dsh-browser: bridge')
 

@@ -23,7 +23,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { StatusPayload } from '../../shared/status.js'
+import { extensionLinkCounts, type StatusPayload } from '../../shared/status.js'
 import { fetchStatus, installHost, uninstallHost } from './api.js'
 import { checks } from './checks.js'
 import type { PairingCardFace, PairingCardState } from './pairing-form.js'
@@ -310,7 +310,7 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
                 <DetailRow label={props.t('launchArgs')} value={status.launchArgs?.join(' ') ?? ''} />
                 <DetailRow
                   label={props.t('boundTab')}
-                  value={status.boundTabId === null ? props.t('none') : String(status.boundTabId)}
+                  value={!extensionLinkCounts(status) || status.boundTabId === null ? props.t('none') : String(status.boundTabId)}
                 />
               </div>
             )}

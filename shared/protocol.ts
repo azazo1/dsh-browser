@@ -94,6 +94,13 @@ export interface HelloPayload {
    * 向 dsh 证明自己", 因为令牌是在扩展侧生成并展示, 由人抄进 dsh 的.
    */
   pairingToken?: string
+  /**
+   * 拉起这条 native host 的 Chrome 的 `--user-data-dir`.
+   *
+   * 由 host 在转发 hello 时盖上, 扩展自己填不了. 独立 profile 开着时, 桥只接受
+   * 与配置里那份目录一致的连接, 避免日常 Chrome 把独立窗口的通道顶掉.
+   */
+  userDataDir?: string | null
 }
 
 /** 宿主发往扩展的调用帧. */

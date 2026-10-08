@@ -31,6 +31,12 @@ export interface StatusPayload {
   interpreter: string
   /** 扩展是否已连上宿主. */
   bridgeConnected: boolean
+  /**
+   * 当前这条连接所属 Chrome 的 `--user-data-dir`; 探测不到为 null.
+   *
+   * 独立 profile 开着时, 只有它和 `profileDir` 一致才算连上了选中的那个浏览器.
+   */
+  peerUserDataDir: string | null
   /** 扩展清单版本. */
   extensionVersion: string | null
   /** 扩展当前绑定的标签页 id. */
@@ -61,9 +67,22 @@ export interface StatusPayload {
 }
 
 /**
+ * 比较两个 user-data-dir 是否指向同一份 profile.
+ *
+ * @param left 一侧路径.
+ * @param right 另一侧路径.
+ * @returns 视为同一目录为 true.
+ */
+export function sameUserDataDir(left: string, right: string): boolean {
+  const normalize = (value: string): string => value.replace(/\\/gu, '/').replace(/\/+$/u, '')
+  return normalize(left) === normalize(right)
+}
+
+/**
  * 当前桥连接是否就是本插件选中的那个浏览器.
  *
- * 独立 profile 开着但还没拉起时, 桥上那条属于日常 Chrome, 不能当成已经就绪.
+ * 独立 profile 开着时: 优先看对端报上来的 user-data-dir 是否就是配置里那份;
+ * 探测不到才退回 "本进程是否拉起过" (launchArgs), 避免把日常 Chrome 当成就绪.
  *
  * @param status 与判定有关的字段.
  * @returns 选中的那个浏览器已经连上为 true.
@@ -72,9 +91,14 @@ export function extensionLinkCounts(status: {
   launchStandaloneChromeProfile: boolean
   bridgeConnected: boolean
   launchArgs: string[] | null
+  profileDir: string
+  peerUserDataDir?: string | null
 }): boolean {
   if (!status.launchStandaloneChromeProfile) return status.bridgeConnected
-  return status.launchArgs !== null && status.bridgeConnected
+  if (!status.bridgeConnected) return false
+  const peer = status.peerUserDataDir
+  if (typeof peer === 'string' && peer !== '') return sameUserDataDir(peer, status.profileDir)
+  return status.launchArgs !== null
 }
 
 /** 接口失败时返回的形状. */
