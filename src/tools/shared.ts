@@ -132,7 +132,7 @@ export function formatStatus(
   // 用户应当先看到它.
   lines.push(status.pairingConfigured
     ? `配对令牌: 已配置${status.pairingError === null ? '' : ' (但最近一次握手被拒)'}`
-    : '配对令牌: 尚未配置 —— 请打开浏览器扩展的弹出面板复制配对令牌, 填到本插件的 pairingToken 配置项')
+    : '配对令牌: 尚未配置 —— 请打开浏览器扩展的弹出面板复制配对令牌, 粘贴到 dsh 配置页的配对令牌输入框并保存')
   if (status.pairingError !== null) lines.push(`配对失败原因: ${status.pairingError}`)
   lines.push(`扩展连接: ${extensionLinkCounts(status)
     ? `已连接${status.extensionVersion === null ? '' : ` (扩展版本 ${status.extensionVersion})`}`

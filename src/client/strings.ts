@@ -41,7 +41,8 @@ export type BrowserSettingsKey =
   | 'tokenLabel'
   | 'tokenHint'
   | 'tokenPlaceholder'
-  | 'invalidToken'
+  | 'tokenApply'
+  | 'tokenSaved'
   | 'launchLabel'
   | 'launchHint'
   | 'installAutoLabel'
@@ -89,10 +90,11 @@ export const zh: Record<BrowserSettingsKey, string> = {
   stale: '检测到已装的连接组件与当前配置不一致 (可能换过数据目录或扩展密钥). 点"安装连接组件"即可重装.',
   tokenLabel: '配对令牌',
   tokenHint: '点浏览器工具栏上的 dsh Browser 图标, 复制弹出面板里的配对令牌, 粘贴到这里再点保存. '
-    + '保存后插件会把它转移到本机数据目录并清空这个字段, 配置文件里不会留令牌. '
+    + '令牌直接写进本机数据目录, 不进配置文件, 因此不会跟着 dsh 的配置同步到别的设备. '
     + '这个值明文显示, 因为它需要和扩展面板里那串核对.',
   tokenPlaceholder: '粘贴扩展面板里显示的令牌',
-  invalidToken: '这个值不被接受',
+  tokenApply: '保存令牌',
+  tokenSaved: '令牌已保存到本机数据目录, 配置文件里没有它.',
   launchLabel: '启动独立 profile 的 Chrome',
   launchHint: '关闭时永远不自行打开 Chrome, 只用扩展已经连上的那个浏览器. 打开后 dsh 会用一份全新的独立 profile 启动 Chrome, 不再复用你日常那个窗口; 那份 profile 没有登录态, 需要单独再加载一次扩展.',
   installAutoLabel: '自动同步连接组件',
@@ -141,10 +143,11 @@ export const en: Record<BrowserSettingsKey, string> = {
   stale: 'The installed connection pieces do not match the current configuration (the data directory or extension key changed). Click "Install connection pieces" to reinstall.',
   tokenLabel: 'Pairing token',
   tokenHint: 'Open the dsh Browser popup from the toolbar, copy its pairing token, paste it here and save. '
-    + 'After saving, the plugin moves it into the local data directory and clears this field; the token never stays in the config file. '
+    + 'The token is written straight into the local data directory and never enters the config file, so it will not sync to other devices with your dsh config. '
     + 'The value is shown in clear because it must be compared with the popup.',
   tokenPlaceholder: 'Paste the token shown in the extension popup',
-  invalidToken: 'This value is not accepted',
+  tokenApply: 'Save token',
+  tokenSaved: 'Token saved into the local data directory; it is not in the config file.',
   launchLabel: 'Launch a standalone Chrome profile',
   launchHint: 'Off: never open Chrome; only reuse the browser whose extension is already connected. On: dsh launches a fresh independent profile and will not reuse your daily Chrome. That profile has no login state and needs the extension loaded once.',
   installAutoLabel: 'Sync connection pieces automatically',

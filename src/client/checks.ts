@@ -79,7 +79,7 @@ export function checks(status: StatusPayload): CheckRow[] {
         ? status.pairingError
         : (status.pairingConfigured
           ? '已配置; 扩展握手时会核对'
-          : '尚未配置: 打开浏览器扩展的弹出面板, 复制其中的配对令牌填到本插件的 pairingToken 配置项'),
+          : '尚未配置: 打开浏览器扩展的弹出面板, 复制其中的配对令牌, 粘贴到配置页的配对令牌输入框并保存'),
     },
     {
       key: 'checkEvaluate',

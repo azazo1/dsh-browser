@@ -34,7 +34,7 @@
       pairingState.textContent = "dsh \u5DF2\u63A5\u53D7\u914D\u5BF9.";
     } else {
       pairingState.className = "pairing-state";
-      pairingState.textContent = "\u5C55\u5F00\u914D\u5BF9\u4EE4\u724C, \u590D\u5236\u540E\u586B\u8FDB dsh \u7684 pairingToken, \u8FDE\u63A5\u4F1A\u81EA\u52A8\u6062\u590D.";
+      pairingState.textContent = "\u5C55\u5F00\u914D\u5BF9\u4EE4\u724C, \u590D\u5236\u540E\u7C98\u8D34\u5230 dsh \u914D\u7F6E\u9875\u7684\u914D\u5BF9\u4EE4\u724C\u8F93\u5165\u6846\u5E76\u4FDD\u5B58, \u8FDE\u63A5\u4F1A\u81EA\u52A8\u6062\u590D.";
     }
     const tokenElement = element("pairing-token");
     tokenElement.textContent = status.pairingToken === "" ? "\u8BFB\u53D6\u4E2D..." : status.pairingToken;
@@ -71,7 +71,7 @@
     if (token === "" || token === "\u8BFB\u53D6\u4E2D...") return;
     void navigator.clipboard.writeText(token).then(() => {
       element("pairing-state").className = "pairing-state ok";
-      element("pairing-state").textContent = "\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F, \u7C98\u8D34\u5230 dsh \u7684 pairingToken \u5373\u53EF.";
+      element("pairing-state").textContent = "\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F, \u7C98\u8D34\u5230 dsh \u914D\u7F6E\u9875\u7684\u914D\u5BF9\u4EE4\u724C\u8F93\u5165\u6846\u5E76\u4FDD\u5B58\u5373\u53EF.";
     }, () => {
       element("pairing-state").className = "pairing-state";
       element("pairing-state").textContent = "\u81EA\u52A8\u590D\u5236\u4E0D\u53EF\u7528, \u8BF7\u624B\u52A8\u9009\u4E2D\u4E0A\u9762\u7684\u4EE4\u724C\u590D\u5236.";

@@ -7,11 +7,11 @@
  *      每行的状态有四态 (正常 / 需处理 / 配置错误 / 尚不可知), 映射见 checks.ts.
  *   3. 操作按钮 —— 安装 / 卸载连接组件, 刷新状态.
  *   4. 手动步骤 —— 必须由用户做的事 (在 chrome://extensions 里加载扩展), 写明具体路径并提供复制按钮.
- *   5. 配置表单 —— 独立 profile 开关与配对令牌. 开关改变"用哪个 Chrome"; 令牌是手动步骤的
- *      最后一步, 放在同一张表单里保存.
+ *   5. 配置表单与令牌输入 —— 表单里是独立 profile 与自动安装两个开关, 改变"用哪个 Chrome"与
+ *      "要不要自动同步组件"; 配对令牌是手动步骤的最后一步, 它不进配置文件, 单独一段就地提交.
  *   6. 细节     —— 路径, 扩展 id, 解释器, 启动参数, 排查时才需要.
  *
- * 除了表单里那两项, 页面上的信息都是"Host 观测到的运行时状态", 不是 profile 里的配置值,
+ * 除了表单与令牌输入, 页面上的信息都是"Host 观测到的运行时状态", 不是 profile 里的配置值,
  * 所以它们刻意不做成输入框 —— 那会让人以为可以改. 样式用内联样式加 dsh 的语义 token,
  * 不写死颜色.
  */
@@ -19,12 +19,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import {
-  Button, Input, SettingsForm, SettingsValueField, StateDot, Switch,
+  Button, Input, SettingsForm, StateDot, Switch,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { extensionLinkCounts, type StatusPayload } from '../../shared/status.js'
-import { fetchStatus, installHost, uninstallHost } from './api.js'
+import { fetchStatus, installHost, setPairingToken, uninstallHost } from './api.js'
 import { checks } from './checks.js'
 import type { PairingCardFace, PairingCardState } from './pairing-form.js'
 import type { BrowserSettingsKey } from './strings.js'
@@ -139,6 +139,11 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
   const [busy, setBusy] = useState<'install' | 'uninstall' | 'refresh' | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [copied, setCopied] = useState(false)
+  // 令牌的输入是本组件自己的状态: 它不进配置表单 (见 pairing-form.ts), 保存时直接提交
+  // 到 Host 的 HTTP 接口落数据目录文件.
+  const [tokenDraft, setTokenDraft] = useState('')
+  const [tokenBusy, setTokenBusy] = useState(false)
+  const [tokenSaved, setTokenSaved] = useState(false)
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -172,6 +177,26 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
 
   const rows = useMemo(() => (status === null ? [] : checks(status)), [status])
   const pairing = props.usePairingForm(snapshot => snapshot)
+
+  // 提交令牌: 走 Host 的 /pairing-token 接口, 成功后清掉输入框并短暂提示结果.
+  // 提交后的状态以 Host 回报为准, 不做前端乐观猜测.
+  const applyToken = useCallback(async (): Promise<void> => {
+    const token = tokenDraft.trim()
+    if (token === '') return
+    setTokenBusy(true)
+    try {
+      const next = await setPairingToken(token)
+      setStatus(next)
+      setTokenDraft('')
+      setTokenSaved(true)
+      setTimeout(() => { setTokenSaved(false) }, 4_000)
+      setError(null)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setTokenBusy(false)
+    }
+  }, [tokenDraft])
 
   return (
     <div style={styles.root}>
@@ -244,9 +269,8 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
           </section>
 
           {/*
-            配对令牌的表单紧跟在"需要手动完成"那一节之后: 它本身就是那些手动步骤里的最后一步,
-            放在这里读起来是连贯的 (先看该做什么, 再就地填进去). 而状态清单与按钮属于"看情况",
-            放在前面会把这件必须做的事往后推.
+            配置表单紧跟在"需要手动完成"那一节之后; 配对令牌的输入区再跟在表单后面:
+            它是手动步骤的最后一步, 放在这里读起来是连贯的 (先看该做什么, 再就地填进去).
           */}
           <SettingsForm
             labels={formLabels(props.t)}
@@ -306,20 +330,34 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
               </div>
               <p style={styles.hint}>{props.t('installAutoHint')}</p>
             </div>
-            <SettingsValueField
-              id="plugin-config-dsh-browser-pairing-token"
-              label={props.t('tokenLabel')}
-              hint={props.t('tokenHint')}
-              overriddenLabel={props.t('overridden')}
-              resetLabel={props.t('reset')}
-              invalidLabel={props.t('invalidToken')}
-              placeholder={props.t('tokenPlaceholder')}
-              disabled={!pairing.writable}
-              {...pairing.pairingToken}
-              onEdit={(text) => { props.edit('pairingToken', text) }}
-              onReset={() => { props.resetField('pairingToken') }}
-            />
           </SettingsForm>
+
+          {/*
+            令牌输入区刻意不放在配置表单里: 配置表单的保存会把整份草稿写进配置 patch,
+            而令牌按设备各一份, 不该跟着配置文件同步到别的设备. 所以它是独立的一段,
+            点保存时直接提交到 Host 的 /pairing-token 接口, 由 Host 写进数据目录.
+          */}
+          <section style={styles.switchRow}>
+            <div style={styles.switchHead}>
+              <span style={styles.switchLabel}>{props.t('tokenLabel')}</span>
+            </div>
+            <div style={styles.path}>
+              <Input
+                value={tokenDraft}
+                placeholder={props.t('tokenPlaceholder')}
+                onChange={(event) => { setTokenDraft(event.currentTarget.value) }}
+              />
+              <Button
+                variant="primary"
+                disabled={tokenBusy || tokenDraft.trim() === ''}
+                onClick={() => { void applyToken() }}
+              >
+                {tokenBusy ? props.t('saving') : props.t('tokenApply')}
+              </Button>
+            </div>
+            <p style={styles.hint}>{props.t('tokenHint')}</p>
+            {tokenSaved && <p style={styles.hint}>{props.t('tokenSaved')}</p>}
+          </section>
 
           <section style={styles.details}>
             <Button variant="outline" onClick={() => { setShowDetails(value => !value) }}>

@@ -96,9 +96,9 @@ describe('配对令牌校验', () => {
     // 关键: 拒绝原因要送到扩展, 否则用户只会看到"连不上".
     const rejection = result.events.find(event => event.event === 'pairing-rejected')
     expect(rejection, '应当把拒绝原因作为事件发回扩展').toBeDefined()
-    expect(rejection?.payload?.reason).toContain('pairingToken')
+    expect(rejection?.payload?.reason).toContain('配对令牌输入框')
     // 状态里也要留下原因, 供 browser_status 与配置页显示.
-    expect(harness.bridge.connectionState.pairingError).toContain('pairingToken')
+    expect(harness.bridge.connectionState.pairingError).toContain('配对令牌输入框')
   })
 
   it('扩展没报令牌时拒绝', async () => {

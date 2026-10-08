@@ -55,6 +55,16 @@ export async function uninstallHost(): Promise<StatusPayload> {
 }
 
 /**
+ * 提交新的配对令牌. 令牌由 Host 直接写进本机数据目录, 不进配置 patch.
+ *
+ * @param token 从扩展面板复制来的令牌.
+ * @returns 提交后的状态.
+ */
+export async function setPairingToken(token: string): Promise<StatusPayload> {
+  return request<StatusPayload>('/pairing-token', { method: 'POST', body: JSON.stringify({ token }) })
+}
+
+/**
  * 把浏览器驱动权交给指定会话. 这是用户本人在会话 Tab 里点的, 不再弹审批.
  *
  * @param sessionId 当前会话 id.

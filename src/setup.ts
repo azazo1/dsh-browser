@@ -105,7 +105,7 @@ export function setupGuide(gaps: readonly string[], input: SetupInput): string {
   if (!input.pairingConfigured || input.pairingError !== null) {
     lines.push(
       '3. 点浏览器工具栏上的 dsh Browser 图标打开弹出面板, 复制里面的「配对令牌」.',
-      '   把令牌粘贴回 dsh 的 dsh-browser 配置页里的 pairingToken 字段并保存; ',
+      '   把令牌粘贴回 dsh 的 dsh-browser 配置页的配对令牌输入框并点「保存令牌」; ',
       '   扩展会自动重连, 面板上会显示「dsh 已接受配对」.',
     )
   } else if (!input.bridgeConnected && !input.launchStandaloneChromeProfile) {

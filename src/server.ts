@@ -16,6 +16,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { StatusPayload } from '../shared/status.js'
 import { grantFromUserClick } from './acquire.js'
+import type { PairingTokenStore } from './pairing-store.js'
+import type { PairingDrain } from './pairing-sync.js'
 import type { BrowserRuntime } from './runtime.js'
 import { evaluateSetup, hostParts } from './setup.js'
 import { uninstallHost } from './native-host/install.js'
@@ -137,10 +139,16 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
  * `webServer` 来自插件的必需 `inject`, 可直接取用. `connection` 则是可选的: 纯 CLI /
  * headless 组合里没有它, 这时返回 503 而不是把整个插件拖成必需依赖.
  *
+ * 令牌的写入走 `POST /pairing-token`: 令牌不该进配置 patch (它按设备各一份, 而配置
+ * 文件常被 git 同步), 所以配置页把它直接交给这里落进数据目录的令牌文件. 这个请求
+ * 上下文在 HMR 事务之外, 顺带清理配置里遗留的旧令牌是安全的 (见 pairing-sync.ts).
+ *
  * @param ctx 插件上下文.
  * @param runtime 浏览器运行时.
+ * @param pairing 已配对令牌的存放.
+ * @param pairingDrain 配置字段遗留令牌的清理器.
  */
-export function registerApi(ctx: Context, runtime: BrowserRuntime): void {
+export function registerApi(ctx: Context, runtime: BrowserRuntime, pairing: PairingTokenStore, pairingDrain: PairingDrain): void {
   const webServer = ctx.webServer
   webServer.register({
     kind: 'prefix',
@@ -161,9 +169,25 @@ export function registerApi(ctx: Context, runtime: BrowserRuntime): void {
       const path = url.pathname
       try {
         if (req.method === 'GET' && path === `${API_PREFIX}/status`) {
+          // 状态轮询顺带清一次配置里遗留的旧令牌: 手工编辑过 yaml 的用户只要打开过
+          // 配置页, 遗留值就会被搬走. drain 内部发现没有遗留值时是纯内存判断, 开销可忽略.
+          pairingDrain.drainSafely()
           sendJson(res, 200, await collect(runtime))
           return
         }
+      if (req.method === 'POST' && path === `${API_PREFIX}/pairing-token`) {
+        const body = await readJsonBody(req)
+        const token = body['token']
+        if (typeof token !== 'string' || token.trim() === '' || token.length > 512) {
+          sendJson(res, 400, { error: '请求体里的 token 必须是 1 到 512 个字符的字符串' })
+          return
+        }
+        pairing.store(token.trim())
+        ctx.logger.info('dsh-browser: 配置页提交了新的配对令牌, 已写入本机数据目录 (不进配置文件)')
+        await pairingDrain.drain()
+        sendJson(res, 200, await collect(runtime))
+        return
+      }
       if (req.method === 'POST' && path === `${API_PREFIX}/install`) {
         await drainBody(req)
         const installed = await runtime.install()

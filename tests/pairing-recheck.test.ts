@@ -162,10 +162,10 @@ describe('配对令牌的校验时机', () => {
     // 的是一句与事实不符的提示.
     const message = describeBridgeError(new BridgeCallError(
       'pairing-rejected',
-      '配对令牌不一致. 请打开浏览器扩展的弹出面板, 复制其中的配对令牌, 覆盖 dsh 配置里的 pairingToken.',
+      '配对令牌不一致. 请打开浏览器扩展的弹出面板, 复制其中的配对令牌, 重新提交到配置页的配对令牌输入框.',
     ))
     expect(message).toContain('配对令牌不一致')
-    expect(message).toContain('pairingToken')
+    expect(message).toContain('配对令牌输入框')
     // 不能退化成那句与事实不符的通用提示.
     expect(message).not.toContain('扩展没有连着 dsh')
   })

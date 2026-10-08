@@ -75,7 +75,7 @@ function render(status: StatusResponse): void {
     pairingState.textContent = 'dsh 已接受配对.'
   } else {
     pairingState.className = 'pairing-state'
-    pairingState.textContent = '展开配对令牌, 复制后填进 dsh 的 pairingToken, 连接会自动恢复.'
+    pairingState.textContent = '展开配对令牌, 复制后粘贴到 dsh 配置页的配对令牌输入框并保存, 连接会自动恢复.'
   }
   const tokenElement = element('pairing-token')
   // 令牌还没读出来时别把空串渲染成"空白", 那会让人以为令牌是空的.
@@ -124,7 +124,7 @@ element('copy-pairing').addEventListener('click', () => {
   // 令牌很长, 手抄容易错位, 所以给一个复制按钮; 复制失败时至少文本可以手动选中.
   void navigator.clipboard.writeText(token).then(() => {
     element('pairing-state').className = 'pairing-state ok'
-    element('pairing-state').textContent = '已复制到剪贴板, 粘贴到 dsh 的 pairingToken 即可.'
+    element('pairing-state').textContent = '已复制到剪贴板, 粘贴到 dsh 配置页的配对令牌输入框并保存即可.'
   }, () => {
     element('pairing-state').className = 'pairing-state'
     element('pairing-state').textContent = '自动复制不可用, 请手动选中上面的令牌复制.'

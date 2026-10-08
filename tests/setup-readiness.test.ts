@@ -54,7 +54,7 @@ describe('就绪判定', () => {
     const status = evaluateSetup(withPatch({ pairingConfigured: false }))
     expect(status.ready).toBe(false)
     expect(status.gaps.join(' ')).toContain('配对令牌')
-    expect(status.guide).toContain('pairingToken')
+    expect(status.guide).toContain('配对令牌输入框')
     // 模型被告知要讲给用户, 而不是自己反复重试.
     expect(status.guide).toContain('讲给用户')
   })
@@ -99,7 +99,7 @@ describe('就绪判定', () => {
     expect(status.gaps.length).toBe(3)
     const guide = status.guide
     expect(guide).toContain('安装连接组件')
-    expect(guide).toContain('pairingToken')
+    expect(guide).toContain('配对令牌输入框')
     expect(guide).toContain('chrome://extensions')
     // 不给"换个工具试试"的错觉.
     expect(guide).toContain('不要反复重试')

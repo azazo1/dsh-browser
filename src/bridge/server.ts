@@ -151,15 +151,15 @@ export class BridgeServer {
     const expected = this.expectedPairingToken()
     if (expected === '') {
       return 'dsh 还没有配置配对令牌. 请打开浏览器扩展的弹出面板, 复制其中的配对令牌, '
-        + '填到 dsh 的「设置 -> 插件 -> dsh-browser」里的 pairingToken 字段.'
+        + '粘贴到 dsh 的「设置 -> 插件 -> dsh-browser」配置页的配对令牌输入框并点保存.'
     }
     if (typeof provided !== 'string' || provided === '') {
       return '扩展没有报上配对令牌 (可能还是旧版本), 而 dsh 已经配置了一个. '
-        + '请在 chrome://extensions 重新加载扩展; 若依旧如此, 请重新复制扩展面板里的令牌填进 dsh 配置.'
+        + '请在 chrome://extensions 重新加载扩展; 若依旧如此, 请重新复制扩展面板里的令牌填进配置页的配对令牌输入框.'
     }
     if (!timingSafeEqual(provided, expected)) {
       return '配对令牌不一致. 请打开浏览器扩展的弹出面板, 复制其中的配对令牌, '
-        + '覆盖 dsh 配置里的 pairingToken; 换过令牌之后两侧都必须用新的那一个.'
+        + '重新提交到配置页的配对令牌输入框; 换过令牌之后两侧都必须用新的那一个.'
     }
     return null
   }

@@ -303,7 +303,7 @@ describe('浏览器驱动权的申请与让出', () => {
     const result = await request(agent, 'browser_open', {}, {
       ready: false,
       gaps: ['dsh 侧还没填配对令牌'],
-      guide: '浏览器还没配置好, 请把步骤讲给用户: 复制扩展面板里的配对令牌填进 pairingToken.',
+      guide: '浏览器还没配置好, 请把步骤讲给用户: 复制扩展面板里的配对令牌, 粘贴到配置页的配对令牌输入框并保存.',
     })
 
     expect(result.kind).toBe('deny')
