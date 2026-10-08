@@ -80,7 +80,7 @@ describe('插件加载即发布桥地址', () => {
     const ctx = new Context()
     ctx.provide('webServer', { port: 54213 })
     const config = Config({ dataDir })
-    const bridge = new BridgeServer(ctx, 'tok-timing')
+    const bridge = new BridgeServer(ctx, 'tok-timing', () => 'pair-timing')
     const runtime = new BrowserRuntime(ctx, config, bridge)
 
     const file = resolvePaths(config).rendezvousFile

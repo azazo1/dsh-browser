@@ -7,6 +7,7 @@
  */
 
 import type { TabInfo } from '../../../shared/protocol.js'
+import { PageError } from './errors.js'
 
 /** 把 chrome 的 Tab 描述转成协议里的 TabInfo. */
 export function toTabInfo(tab: chrome.tabs.Tab): TabInfo {
@@ -66,9 +67,25 @@ export async function activateTab(tabId: number): Promise<TabInfo> {
 
 /**
  * 关闭一个标签页.
+ *
+ * **拒绝关闭所在窗口的最后一个标签页**: `chrome.tabs.remove` 在这种情况下的实际效果是关掉
+ * 整个窗口, 而如果那又是唯一窗口, Chrome 会退出 —— 扩展, native host 与桥的链路随之一起消失.
+ * 那不是"关掉一个标签页", 而是把正在工作的浏览器拆掉, 失败现象 (后续调用全部报链路断开) 也
+ * 离原因很远. 调用方真正想要"清空"时, 先在同一窗口开一个新标签页即可.
+ *
  * @param tabId 标签页 id.
+ * @throws PageError 目标是所在窗口的最后一个标签页时抛出.
  */
 export async function closeTab(tabId: number): Promise<void> {
+  const target = await getTab(tabId)
+  const siblings = await chrome.tabs.query({ windowId: target.windowId })
+  if (siblings.length <= 1) {
+    throw new PageError(
+      'last-tab',
+      `标签页 ${tabId} 是它所在窗口的最后一个标签页, 关掉它会连带关闭窗口 (以及可能退出 Chrome 并断开整条链路). `
+      + '请先在同一窗口打开一个新标签页 (browser_open 传 url 即可), 再关闭这一个.',
+    )
+  }
   await chrome.tabs.remove(tabId)
 }
 

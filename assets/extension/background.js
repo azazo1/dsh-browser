@@ -56,7 +56,13 @@ var NativeBridge = class {
   port = null;
   timer = null;
   backoffIndex = 0;
-  status = { hostConnected: false, linked: false, lastError: null, attempts: 0 };
+  status = {
+    hostConnected: false,
+    linked: false,
+    lastError: null,
+    pairingError: null,
+    attempts: 0
+  };
   listeners = /* @__PURE__ */ new Set();
   /** 当前状态快照. */
   getStatus() {
@@ -85,10 +91,16 @@ var NativeBridge = class {
     port.onMessage.addListener((message) => {
       const frame = message;
       if (frame?.kind === "event" && frame.event === "link-ready") {
-        this.status = { ...this.status, linked: true, lastError: null };
+        this.status = { ...this.status, linked: true, lastError: null, pairingError: null };
         this.emit();
         this.log("info", "native host \u5DF2\u8FDE\u4E0A dsh");
         this.onConnected();
+        return;
+      }
+      if (frame?.kind === "event" && frame.event === "pairing-rejected") {
+        this.status = { ...this.status, linked: false, pairingError: frame.payload?.reason ?? "dsh \u62D2\u7EDD\u4E86\u914D\u5BF9" };
+        this.emit();
+        this.log("warn", `dsh \u62D2\u7EDD\u914D\u5BF9: ${this.status.pairingError}`);
         return;
       }
       if (frame?.kind === "event" && frame.event === "link-lost") {
@@ -167,6 +179,44 @@ var NativeBridge = class {
     for (const listener of this.listeners) listener(snapshot);
   }
 };
+
+// extension/src/background/pairing.ts
+var STORAGE_KEY = "dshBrowserPairingToken";
+var cached = null;
+var loading = null;
+function newPairingToken() {
+  const bytes = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return globalThis.btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+async function pairingToken() {
+  if (cached !== null) return cached;
+  loading ??= (async () => {
+    try {
+      const stored = await chrome.storage.local.get(STORAGE_KEY);
+      const existing = stored[STORAGE_KEY];
+      if (typeof existing === "string" && existing !== "") {
+        cached = existing;
+        return existing;
+      }
+      const created = newPairingToken();
+      await chrome.storage.local.set({ [STORAGE_KEY]: created });
+      cached = created;
+      return created;
+    } finally {
+      loading = null;
+    }
+  })();
+  return await loading;
+}
+async function resetPairingToken() {
+  const created = newPairingToken();
+  await chrome.storage.local.set({ [STORAGE_KEY]: created });
+  cached = created;
+  return created;
+}
 
 // extension/src/background/injected.ts
 var SNAPSHOT_KEY = "__dshBrowserSnapshot";
@@ -673,6 +723,19 @@ function uploadAbort(uploadKey, uploadIds) {
   return { ok: true, aborted, note: `\u5DF2\u4E22\u5F03 ${String(aborted)} \u4E2A\u672A\u5B8C\u6210\u7684\u4E0A\u4F20` };
 }
 
+// extension/src/background/errors.ts
+var PageError = class extends Error {
+  /**
+   * @param code 协议里的错误类别.
+   * @param message 面向模型的中文说明.
+   */
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+    this.name = "PageError";
+  }
+};
+
 // extension/src/background/tabs.ts
 function toTabInfo(tab) {
   return {
@@ -707,6 +770,14 @@ async function activateTab(tabId) {
   return getTab(tabId);
 }
 async function closeTab(tabId) {
+  const target = await getTab(tabId);
+  const siblings = await chrome.tabs.query({ windowId: target.windowId });
+  if (siblings.length <= 1) {
+    throw new PageError(
+      "last-tab",
+      `\u6807\u7B7E\u9875 ${tabId} \u662F\u5B83\u6240\u5728\u7A97\u53E3\u7684\u6700\u540E\u4E00\u4E2A\u6807\u7B7E\u9875, \u5173\u6389\u5B83\u4F1A\u8FDE\u5E26\u5173\u95ED\u7A97\u53E3 (\u4EE5\u53CA\u53EF\u80FD\u9000\u51FA Chrome \u5E76\u65AD\u5F00\u6574\u6761\u94FE\u8DEF). \u8BF7\u5148\u5728\u540C\u4E00\u7A97\u53E3\u6253\u5F00\u4E00\u4E2A\u65B0\u6807\u7B7E\u9875 (browser_open \u4F20 url \u5373\u53EF), \u518D\u5173\u95ED\u8FD9\u4E00\u4E2A.`
+    );
+  }
   await chrome.tabs.remove(tabId);
 }
 async function waitForComplete(tabId, timeoutMs) {
@@ -736,17 +807,6 @@ var BLOCKED_SCHEMES = [
   "https://chrome.google.com/webstore",
   "https://chromewebstore.google.com"
 ];
-var PageError = class extends Error {
-  /**
-   * @param code 协议里的错误类别.
-   * @param message 面向模型的中文说明.
-   */
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-    this.name = "PageError";
-  }
-};
 function blockedReason(url) {
   for (const scheme of BLOCKED_SCHEMES) {
     if (url.startsWith(scheme)) {
@@ -1243,6 +1303,14 @@ function resultFrame(id, value) {
 function errorFrame(id, code, message) {
   return { kind: "error", id, ok: false, error: { code, message } };
 }
+var cachedPairingToken = "";
+async function loadPairingToken() {
+  try {
+    cachedPairingToken = await pairingToken();
+  } catch (error) {
+    log("warn", `\u8BFB\u53D6\u914D\u5BF9\u4EE4\u724C\u5931\u8D25: ${String(error)}`);
+  }
+}
 function greet() {
   bridge.send({
     kind: "event",
@@ -1252,7 +1320,8 @@ function greet() {
       extensionId,
       version: chrome.runtime.getManifest().version,
       boundTabId,
-      userScripts: userScriptsAvailable()
+      userScripts: userScriptsAvailable(),
+      pairingToken: cachedPairingToken
     }
   });
   if (boundTabId !== null) {
@@ -1270,7 +1339,13 @@ function userScriptsAvailable() {
   }
 }
 function statusSnapshot() {
-  return { ...bridge.getStatus(), boundTabId, hostName: NATIVE_HOST_NAME, userScripts: userScriptsAvailable() };
+  return {
+    ...bridge.getStatus(),
+    boundTabId,
+    hostName: NATIVE_HOST_NAME,
+    userScripts: userScriptsAvailable(),
+    pairingToken: cachedPairingToken
+  };
 }
 chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   const request = message;
@@ -1280,6 +1355,16 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   }
   if (request?.kind === "reconnect") {
     bridge.connect();
+    respond(statusSnapshot());
+    return false;
+  }
+  if (request?.kind === "reset-pairing") {
+    void resetPairingToken().then(async (token) => {
+      cachedPairingToken = token;
+      bridge.disconnect();
+      bridge.connect();
+      log("info", "\u914D\u5BF9\u4EE4\u724C\u5DF2\u91CD\u65B0\u751F\u6210, \u9700\u8981\u5728 dsh \u914D\u7F6E\u91CC\u66F4\u65B0");
+    });
     respond(statusSnapshot());
     return false;
   }
@@ -1297,4 +1382,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 log("info", `service worker \u542F\u52A8, \u6269\u5C55 id=${extensionId}, \u6B63\u5728\u8FDE\u63A5 native host ${NATIVE_HOST_NAME}`);
-bridge.connect();
+void loadPairingToken().then(() => {
+  bridge.connect();
+});

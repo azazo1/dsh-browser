@@ -11,6 +11,19 @@
       <p id="detail" class="detail">正在读取状态...</p>
       <p id="binding" class="binding">尚未绑定标签页</p>
       <p id="capabilities" class="binding">浏览器求值: 正在检测...</p>
+      <section class="pairing">
+        <p class="pairing-title">配对令牌</p>
+        <p class="pairing-hint">
+          把下面这串复制到 dsh 的「设置 -&gt; 插件 -&gt; dsh-browser」的 pairingToken 里.
+          dsh 没配置它之前, 浏览器操作会被拒绝.
+        </p>
+        <code id="pairing-token" class="pairing-token">读取中...</code>
+        <div class="pairing-actions">
+          <button id="copy-pairing" type="button">复制</button>
+          <button id="reset-pairing" type="button">重新生成</button>
+        </div>
+        <p id="pairing-state" class="pairing-state"></p>
+      </section>
       <button id="reconnect" type="button">重新连接</button>
       <p class="hint">
         本扩展不使用 Chrome 调试协议, 它通过 native messaging 与 dsh 通信.

@@ -37,6 +37,13 @@ export interface BridgeConnectionState {
   /** 最近一次断开或校验失败的原因. */
   lastError: string | null
   /**
+   * 最近一次握手被配对校验拒绝的原因; null 表示没有发生过这种拒绝.
+   *
+   * 与 lastError 分开: 那个是通道层的异常, 这个是"连接建立了但身份没通过校验", 两者对
+   * 用户意味着完全不同的下一步动作.
+   */
+  pairingError: string | null
+  /**
    * 扩展侧 "Allow User Scripts" 开关是否已打开, 也就是浏览器求值能不能用.
    *
    * 这个开关只能由用户在扩展详情页手动打开, 插件自己开不了, 所以必须把状态报出来 ——
@@ -89,15 +96,67 @@ export class BridgeServer {
     extensionVersion: null,
     boundTabId: null,
     lastError: null,
+    pairingError: null,
     userScriptsAvailable: null,
   }
 
   /**
    * @param ctx 插件上下文, 用于挂升级路由.
    * @param token 本次运行的握手令牌.
+   * @param expectedPairingToken 取当前配置的配对令牌; 空串表示还没配对. 用取值的函数而不
+   *   是值本身, 因为它是 volatile 配置: 用户改了之后要立刻生效, 不该重挂插件.
    */
-  constructor(private readonly ctx: Context, private readonly handshakeToken: string) {
+  constructor(
+    private readonly ctx: Context,
+    private readonly handshakeToken: string,
+    private readonly expectedPairingToken: () => string,
+  ) {
     this.wss.on('connection', socket => { this.attach(socket) })
+  }
+
+  /**
+   * 校验扩展报上来的配对令牌.
+   *
+   * 两类失败分开报, 因为用户要做的事不同: 没配过要去抄令牌, 配错了要改配置.
+   *
+   * @param provided 扩展报上来的令牌.
+   * @returns 通过时返回 null; 否则返回给用户看的拒绝原因.
+   */
+  private checkPairing(provided: string | undefined): string | null {
+    const expected = this.expectedPairingToken()
+    if (expected === '') {
+      return 'dsh 还没有配置配对令牌. 请打开浏览器扩展的弹出面板, 复制其中的配对令牌, '
+        + '填到 dsh 的「设置 -> 插件 -> dsh-browser」里的 pairingToken 字段.'
+    }
+    if (typeof provided !== 'string' || provided === '') {
+      return '扩展没有报上配对令牌 (可能还是旧版本), 而 dsh 已经配置了一个. '
+        + '请在 chrome://extensions 重新加载扩展; 若依旧如此, 请重新复制扩展面板里的令牌填进 dsh 配置.'
+    }
+    if (!timingSafeEqual(provided, expected)) {
+      return '配对令牌不一致. 请打开浏览器扩展的弹出面板, 复制其中的配对令牌, '
+        + '覆盖 dsh 配置里的 pairingToken; 换过令牌之后两侧都必须用新的那一个.'
+    }
+    return null
+  }
+
+  /**
+   * 拒绝一条配对失败的连接.
+   *
+   * 先把原因作为事件发回扩展再关闭连接: 只关连接的话, 用户看到的只是"连不上", 完全不知道
+   * 要去填令牌; 把原因送到扩展面板上, 用户才知道下一步该做什么.
+   *
+   * @param socket 要拒绝的连接.
+   * @param reason 给用户看的拒绝原因.
+   */
+  private rejectPairing(socket: WebSocket, reason: string): void {
+    this.ctx.logger.warn(`dsh-browser: 拒绝配对失败的连接: ${reason}`)
+    this.setState({ pairingError: reason })
+    try {
+      socket.send(JSON.stringify({ kind: 'event', event: 'pairing-rejected', payload: { reason } }))
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-browser: 发送配对拒绝原因失败: ${String(error)}`)
+    }
+    socket.close(1008, 'pairing rejected')
   }
 
   /** 本次运行的握手令牌; 由运行时写进会合文件供 native host 使用. */
@@ -240,7 +299,7 @@ export class BridgeServer {
         this.note(`收到无法解析的帧: ${String(error)}`)
         return
       }
-      this.handleFrame(frame)
+      this.handleFrame(frame, socket)
     })
     socket.on('close', () => {
       if (this.live === socket) this.live = null
@@ -252,8 +311,13 @@ export class BridgeServer {
     })
   }
 
-  /** 处理来自扩展的一帧. */
-  private handleFrame(frame: OutboundFrame): void {
+  /**
+   * 处理来自扩展的一帧.
+   *
+   * @param frame 帧内容.
+   * @param socket 收到该帧的连接; 握手失败时要靠它把原因发回去并关闭.
+   */
+  private handleFrame(frame: OutboundFrame, socket: WebSocket): void {
     if (frame.kind === 'result') {
       const result = frame as ResultFrame
       const pending = this.pending.get(result.id)
@@ -273,6 +337,12 @@ export class BridgeServer {
     if (frame.kind === 'event') {
       if (frame.event === 'hello') {
         const hello = frame.payload as Partial<HelloPayload>
+        const pairingFailure = this.checkPairing(hello.pairingToken)
+        if (pairingFailure !== null) {
+          this.rejectPairing(socket, pairingFailure)
+          return
+        }
+        this.setState({ pairingError: null })
         if (hello.protocolVersion !== PROTOCOL_VERSION) {
           this.note(`扩展的协议版本 ${String(hello.protocolVersion)} 与本插件 ${String(PROTOCOL_VERSION)} 不一致, 请重新加载扩展`)
         }

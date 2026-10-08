@@ -36,6 +36,12 @@ export interface BridgeStatus {
   linked: boolean
   /** 最近一次失败原因; 正常时清空. */
   lastError: string | null
+  /**
+   * dsh 拒绝了配对时的原因; null 表示没有发生过.
+   *
+   * 与 lastError 分开: 那个是"连不上", 这个是"连上了但身份没通过", 用户要做的事完全不同.
+   */
+  pairingError: string | null
   /** 已重连次数, 仅用于诊断. */
   attempts: number
 }
@@ -47,7 +53,13 @@ export class NativeBridge {
   private port: chrome.runtime.Port | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
   private backoffIndex = 0
-  private status: BridgeStatus = { hostConnected: false, linked: false, lastError: null, attempts: 0 }
+  private status: BridgeStatus = {
+    hostConnected: false,
+    linked: false,
+    lastError: null,
+    pairingError: null,
+    attempts: 0,
+  }
   private readonly listeners = new Set<StatusListener>()
 
   /**
@@ -96,13 +108,21 @@ export class NativeBridge {
       // 链路状态事件由 host 发出, 在这里先消化掉: 它不属于业务帧, 不该转给调用方.
       const frame = message as { kind?: string, event?: string, payload?: { reason?: string } }
       if (frame?.kind === 'event' && frame.event === 'link-ready') {
-        this.status = { ...this.status, linked: true, lastError: null }
+        this.status = { ...this.status, linked: true, lastError: null, pairingError: null }
         this.emit()
         this.log('info', 'native host 已连上 dsh')
         // 立刻重新握手: dsh 可能是刚重启的 (端口和令牌都换了), 新的一侧还不知道我们的
         // 存在. 不补这一次握手, 宿主侧就只会看到"通道通了"却拿不到扩展版本与已绑定的
         // 标签页, 状态面板显示不全.
         this.onConnected()
+        return
+      }
+      if (frame?.kind === 'event' && frame.event === 'pairing-rejected') {
+        // 配对没通过, dsh 会关掉连接. 这里记住原因, 让面板能直接告诉用户去填令牌 ——
+        // 否则用户只看到"连不上", 完全不知道下一步做什么.
+        this.status = { ...this.status, linked: false, pairingError: frame.payload?.reason ?? 'dsh 拒绝了配对' }
+        this.emit()
+        this.log('warn', `dsh 拒绝配对: ${this.status.pairingError}`)
         return
       }
       if (frame?.kind === 'event' && frame.event === 'link-lost') {

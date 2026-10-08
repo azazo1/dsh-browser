@@ -35,6 +35,16 @@ export interface Config {
    */
   askOnAcquire: Volatile<boolean>
   /**
+   * 与浏览器扩展配对的令牌.
+   *
+   * 由扩展生成并在它的弹出面板里展示, 用户抄到这里. 握手时必须一致, 否则 dsh 拒绝这条
+   * 连接 —— 也就是说: 没有这个令牌, 任何东西都无法通过本插件驱动浏览器.
+   *
+   * 之所以由扩展侧生成而不是反过来: 令牌要证明的是"连上来的是我认可的那个扩展", 而生成
+   * 方能把它展示给用户看, 用户再抄进 dsh 这个受配置管理的一侧.
+   */
+  pairingToken: Volatile<string>
+  /**
    * 插件加载时是否自动写入 native messaging 清单.
    *
    * 默认关闭: 写清单是一次用户级配置写入 (落在 Chrome 的 NativeMessagingHosts
@@ -74,6 +84,7 @@ export const Config = Schema.object({
   dataDir: Schema.string().volatile(),
   extraArgs: Schema.array(Schema.string()).default([]).volatile(),
   askOnAcquire: Schema.boolean().default(true).volatile(),
+  pairingToken: Schema.string().default('').volatile(),
   installHostAutomatically: Schema.boolean().default(false).volatile(),
 })
 

@@ -171,6 +171,42 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     }),
   })
 
+  const closeTab = defineTool({
+    name: 'browser_close_tab',
+    description:
+      '关闭一个标签页. 用 browser_tabs 拿到的 id 指定目标. '
+      + '关掉的若是当前绑定标签页, 绑定会被自动清除 (后续页面操作会提示先重新绑定), '
+      + '所以清理完一个任务后关闭它的标签页是安全的. '
+      + '目标是所在窗口的最后一个标签页时会被拒绝: 那实际上等于关闭窗口, 甚至退出 Chrome 并断开整条链路; '
+      + '需要清空时先开一个新标签页. '
+      + '不要用它关掉 user 正在用的标签页, 除非 user 明确要求.',
+    parameters: {
+      tabId: { type: 'integer', required: true, description: '要关闭的标签页 id, 来自 browser_tabs' },
+    },
+    presentCall: (args) => ({ card: 'generic', title: `关闭标签页 #${String(args.tabId)}` }),
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          closed: { type: 'boolean', required: true, description: '是否真的关闭了' },
+          text: { type: 'string', required: true, description: '执行说明' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: value.text }],
+    },
+    execute: async (args, exec) => runBrowser(deps, exec, async (resource) => {
+      const wasBound = deps.runtime.boundTabId === args.tabId
+      await resource.call('tabs.close', { tabId: args.tabId }, exec.signal)
+      return {
+        closed: true,
+        text: `已关闭标签页 #${String(args.tabId)}.`
+          // 绑定被清掉是调用方必须知道的状态变化, 否则下一步会莫名其妙地失败.
+          + (wasBound ? '它原本是绑定标签页, 绑定已清除; 继续操作页面请先用 browser_select_tab 重新指定.' : ''),
+      }
+    }),
+  })
+
   const release = defineTool({
     name: 'browser_release',
     description:
@@ -206,5 +242,5 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     },
   })
 
-  return [open, status, tabs, selectTab, release]
+  return [open, status, tabs, selectTab, closeTab, release]
 }

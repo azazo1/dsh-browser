@@ -103,6 +103,16 @@ function checks(status: StatusPayload): CheckRow[] {
       detail: status.extensionVersion === null ? '扩展尚未连上' : `扩展版本 ${status.extensionVersion}`,
     },
     {
+      key: 'checkPairing',
+      // 没配置配对令牌时整条链路都用不了, 所以这一项没通过就是真问题.
+      ok: status.pairingConfigured && status.pairingError === null,
+      detail: status.pairingError !== null
+        ? status.pairingError
+        : (status.pairingConfigured
+          ? '已配置; 扩展握手时会核对'
+          : '尚未配置: 打开浏览器扩展的弹出面板, 复制其中的配对令牌填到本插件的 pairingToken 配置项'),
+    },
+    {
       key: 'checkEvaluate',
       // 求值不是必须的: 没开这个开关, 其余 16 个工具照常可用, 所以它不该让整行变红,
       // 只在未开启时说明怎么开.

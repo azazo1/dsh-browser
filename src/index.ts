@@ -91,7 +91,7 @@ const GUIDANCE = `本会话的 browser_* 工具驱动一个由 dsh 启动的持�
  */
 export function apply(ctx: Context, input: ConfigShape): void {
   // 桥的握手令牌每次启动重新生成; native host 从会合文件里读它.
-  const bridge = new BridgeServer(ctx, newToken())
+  const bridge = new BridgeServer(ctx, newToken(), () => input.pairingToken.get())
   BridgeServer.mount(ctx, bridge)
   ctx.effect(() => () => { bridge.dispose() }, 'dsh-browser: bridge')
 

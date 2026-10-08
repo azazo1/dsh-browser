@@ -24,6 +24,9 @@ import {
 } from './injected.js'
 import type { RawSnapshot } from './injected.js'
 import type { QueryResult, UploadResult } from '../../../shared/methods.js'
+import { PageError } from './errors.js'
+
+export { PageError } from './errors.js'
 import { getTab, waitForComplete } from './tabs.js'
 
 
@@ -42,18 +45,6 @@ const BLOCKED_SCHEMES = [
   'https://chrome.google.com/webstore',
   'https://chromewebstore.google.com',
 ]
-
-/** 注入失败时抛出的错误, 带机器可读类别. */
-export class PageError extends Error {
-  /**
-   * @param code 协议里的错误类别.
-   * @param message 面向模型的中文说明.
-   */
-  constructor(readonly code: string, message: string) {
-    super(message)
-    this.name = 'PageError'
-  }
-}
 
 /**
  * 判断一个地址是否禁止注入, 并给出原因.

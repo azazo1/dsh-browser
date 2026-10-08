@@ -44,6 +44,10 @@ export interface StatusPayload {
   userScriptsAvailable: boolean | null
   /** 桥层的最近一次异常. */
   bridgeError: string | null
+  /** dsh 侧是否已经配置了配对令牌. */
+  pairingConfigured: boolean
+  /** 握手因配对失败被拒时的原因; null 表示没有发生过. */
+  pairingError: string | null
   /** 本次运行使用的 Chrome 启动参数. */
   launchArgs: string[] | null
   /** 仍需完成的步骤. */

@@ -87,6 +87,13 @@ export interface HelloPayload {
    * 可选: 老版本扩展不会报这个字段, 缺失时按"未知"处理而不是"不支持".
    */
   userScripts?: boolean
+  /**
+   * 扩展自己生成并在界面上展示的配对令牌.
+   *
+   * 用户把它抄进 dsh 的插件配置, 握手时由 dsh 核对: 对不上就拒绝这条连接. 方向是"扩展
+   * 向 dsh 证明自己", 因为令牌是在扩展侧生成并展示、由人抄进 dsh 的.
+   */
+  pairingToken?: string
 }
 
 /** 宿主发往扩展的调用帧. */
@@ -128,10 +135,13 @@ export interface ErrorFrame {
  * `connectNative` 只证明"host 进程起来了", 并不证明 host 连上了 dsh. 这两个事件才
  * 是链路真实状态的唯一来源, 界面必须据此显示, 否则会出现"显示已连接但 dsh 里什么都
  * 没有"这种误导.
+ *
+ * `pairing-rejected` 由 dsh 侧发出并转给扩展: 配对令牌对不上时 dsh 会拒绝这条连接,
+ * 扩展必须能把原因显示给用户, 否则用户只会看到"连不上"而不知道去填令牌.
  */
 export interface EventFrame {
   kind: 'event'
-  event: 'hello' | 'tab-changed' | 'detached' | 'link-ready' | 'link-lost'
+  event: 'hello' | 'tab-changed' | 'detached' | 'link-ready' | 'link-lost' | 'pairing-rejected'
   payload: unknown
 }
 
@@ -155,6 +165,8 @@ export type ErrorCode =
   | 'injection-blocked'
   /** 扩展开关关闭了该操作. */
   | 'forbidden'
+  /** 目标是所在窗口里最后一个标签页, 关掉它等于关闭窗口. */
+  | 'last-tab'
   /** 超时. */
   | 'timeout'
   /** 其余未分类失败. */

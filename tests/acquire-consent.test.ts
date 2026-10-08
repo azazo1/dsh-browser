@@ -255,20 +255,14 @@ describe('浏览器驱动权的申请与让出', () => {
     expect(approval.asks).toHaveLength(0)
   })
 
-  it('申请清单只包含真正会碰浏览器的工具', () => {
-    // 这条守另一个方向: 清单漏了某个工具, 它就会静默自动取得.
+  it('申请清单里都是 browser_ 工具, 且不含两个免申请的', () => {
+    // 清单与"真实注册的工具集合"的逐项比对放在 tests/unauthorized-access.test.ts: 那里能拿到
+    // 真正注册出来的工具定义, 所以不必在这里再抄一份名字清单 —— 抄一份就会像这次一样,
+    // 新增工具时忘了同步而误报.
+    expect(BROWSER_TOOLS.size).toBeGreaterThan(0)
+    for (const name of BROWSER_TOOLS) expect(name.startsWith('browser_')).toBe(true)
+    // 这两个刻意不申请: status 只读本机状态, release 只是放弃.
     expect(BROWSER_TOOLS.has('browser_status')).toBe(false)
-    for (const name of BROWSER_TOOLS) {
-      expect(name.startsWith('browser_')).toBe(true)
-      // 每个名字都必须是真实存在的工具, 否则就是清单里留了已经不存在的项.
-      expect(new Set([
-        'browser_open', 'browser_tabs', 'browser_select_tab', 'browser_snapshot', 'browser_text',
-        'browser_click', 'browser_fill', 'browser_press_key', 'browser_scroll', 'browser_navigate',
-        'browser_wait', 'browser_query', 'browser_hover', 'browser_upload', 'browser_screenshot',
-        'browser_evaluate',
-      ]).has(name)).toBe(true)
-    }
-    // browser_release 刻意不申请: 它只是放弃, 不取得任何东西.
     expect(BROWSER_TOOLS.has('browser_release')).toBe(false)
   })
 

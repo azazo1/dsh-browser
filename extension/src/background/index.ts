@@ -12,6 +12,7 @@ import { NATIVE_HOST_NAME, PROTOCOL_VERSION } from '../../../shared/protocol.js'
 import type { CallFrame, OutboundFrame } from '../../../shared/protocol.js'
 import { isBrowserMethod } from '../../../shared/methods.js'
 import { NativeBridge } from './native.js'
+import { pairingToken, resetPairingToken } from './pairing.js'
 import type { BridgeStatus } from './native.js'
 import {
   PageError,
@@ -225,6 +226,24 @@ function errorFrame(id: number, code: string, message: string): OutboundFrame {
   return { kind: 'error', id, ok: false, error: { code, message } }
 }
 
+/**
+ * 配对令牌在进程内的缓存.
+ *
+ * 握手 (`greet`) 是同步的, 而读存储是异步的, 所以在 service worker 启动时先把令牌取好; 握手
+ * 时用这个缓存值. 取不到时留空, dsh 会明确报"扩展没有报上配对令牌", 比悄悄连上一个没有身份
+ * 的连接要好.
+ */
+let cachedPairingToken = ''
+
+/** 预取配对令牌; 失败只记日志, 不影响其它功能. */
+async function loadPairingToken(): Promise<void> {
+  try {
+    cachedPairingToken = await pairingToken()
+  } catch (error) {
+    log('warn', `读取配对令牌失败: ${String(error)}`)
+  }
+}
+
 /** 连接建立后补发握手, 让宿主确认对端身份与协议版本. */
 function greet(): void {
   bridge.send({
@@ -236,6 +255,7 @@ function greet(): void {
       version: chrome.runtime.getManifest().version,
       boundTabId,
       userScripts: userScriptsAvailable(),
+      pairingToken: cachedPairingToken,
     },
   })
   // 绑定目标可能已经被关掉, 顺手清理一次, 免得宿主拿到过期编号.
@@ -264,8 +284,19 @@ function userScriptsAvailable(): boolean {
 }
 
 /** 状态查询入口: popup 和宿主都可能问. */
-function statusSnapshot(): BridgeStatus & { boundTabId: number | null, hostName: string, userScripts: boolean } {
-  return { ...bridge.getStatus(), boundTabId, hostName: NATIVE_HOST_NAME, userScripts: userScriptsAvailable() }
+function statusSnapshot(): BridgeStatus & {
+  boundTabId: number | null
+  hostName: string
+  userScripts: boolean
+  pairingToken: string
+} {
+  return {
+    ...bridge.getStatus(),
+    boundTabId,
+    hostName: NATIVE_HOST_NAME,
+    userScripts: userScriptsAvailable(),
+    pairingToken: cachedPairingToken,
+  }
 }
 
 // popup 每次打开会发一条 status 请求, 拿到当前连接与绑定状态.
@@ -277,6 +308,18 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, respond: (respo
   }
   if (request?.kind === 'reconnect') {
     bridge.connect()
+    respond(statusSnapshot())
+    return false
+  }
+  if (request?.kind === 'reset-pairing') {
+    // 换掉令牌之后必须重新握手, 否则这条已经建立的连接仍然用的是旧身份, dsh 侧刚改的配置
+    // 不会生效. 先断开再连, 由 greet 把新令牌报上去.
+    void resetPairingToken().then(async (token) => {
+      cachedPairingToken = token
+      bridge.disconnect()
+      bridge.connect()
+      log('info', '配对令牌已重新生成, 需要在 dsh 配置里更新')
+    })
     respond(statusSnapshot())
     return false
   }
@@ -299,4 +342,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 })
 
 log('info', `service worker 启动, 扩展 id=${extensionId}, 正在连接 native host ${NATIVE_HOST_NAME}`)
-bridge.connect()
+// 先取令牌再连接: 握手要在第一条 hello 里就带上它, 否则第一次握手必然被判失败, 白白多一轮
+// 重连. 取失败也照样继续, 那时 dsh 会报"扩展没报上令牌", 比静默不动更容易诊断.
+void loadPairingToken().then(() => { bridge.connect() })

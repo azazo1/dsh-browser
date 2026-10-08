@@ -40,6 +40,7 @@ const EXTENSION_RESULTS: Record<string, unknown> = {
   ],
   'tabs.activate': { id: 1391393307, url: 'https://www.google.com/', title: 'Google', active: true, windowId: 1 },
   'tabs.open': { id: 1, url: 'https://example.com/', title: 'Example', active: true, windowId: 1 },
+  'tabs.close': { closed: true },
   // page.ts 的四个操作方法都是 `return { note: unwrap(value).note }` —— 没有 ok.
   'page.click': { note: '已点击 <button> 搜索' },
   'page.fill': { note: '已向编号 7 填入 4 个字符, 已按下 Enter' },
@@ -130,6 +131,7 @@ const CALL_ARGS: Record<string, unknown> = {
   browser_status: {},
   browser_tabs: {},
   browser_select_tab: { tabId: 1391393307 },
+  browser_close_tab: { tabId: 1391393308 },
   browser_snapshot: {},
   browser_text: {},
   browser_click: { token: 'muz34laa-ws7emahg', index: 1 },
@@ -189,6 +191,7 @@ describe('每个 browser_* 工具的产物都是 harness 认可的 lossless JSON
     // 期望的工具名清单写死在这里: 新增工具而忘了给它加用例时, 这条会失败.
     expect([...tools.keys()].sort()).toEqual([
       'browser_click',
+      'browser_close_tab',
       'browser_evaluate',
       'browser_fill',
       'browser_hover',

@@ -17,6 +17,10 @@ interface StatusResponse {
   hostName: string
   /** 浏览器求值所需的 "Allow User Scripts" 开关是否已打开. */
   userScripts: boolean
+  /** dsh 拒绝配对时的原因; null 表示没有发生过. */
+  pairingError: string | null
+  /** 本扩展的配对令牌, 供用户抄进 dsh 配置. */
+  pairingToken: string
 }
 
 /** 取一个元素, 找不到就抛错 (弹窗 DOM 是静态的, 缺元素属于开发错误). */
@@ -59,6 +63,22 @@ function render(status: StatusResponse): void {
     ? '尚未绑定标签页'
     : `已绑定标签页 #${status.boundTabId}`
 
+  // 配对状态: 这是用户最需要知道的一件事 —— 没配对时 dsh 会拒绝所有浏览器操作.
+  const pairingState = element('pairing-state')
+  if (status.pairingError !== null) {
+    pairingState.className = 'pairing-state bad'
+    pairingState.textContent = `dsh 拒绝了配对: ${status.pairingError}`
+  } else if (status.linked) {
+    pairingState.className = 'pairing-state ok'
+    pairingState.textContent = 'dsh 已接受配对.'
+  } else {
+    pairingState.className = 'pairing-state'
+    pairingState.textContent = '把上面的令牌填进 dsh 的 pairingToken 后, 连接会自动恢复.'
+  }
+  const tokenElement = element('pairing-token')
+  // 令牌还没读出来时别把空串渲染成"空白", 那会让人以为令牌是空的.
+  tokenElement.textContent = status.pairingToken === '' ? '读取中...' : status.pairingToken
+
   // 求值能力取决于一个手动开关, 打开前工具会拒绝调用, 所以这里直接说明状态.
   capabilities.textContent = status.userScripts
     ? '浏览器求值: 可用'
@@ -79,12 +99,31 @@ async function refresh(): Promise<void> {
       boundTabId: null,
       hostName: 'unknown',
       userScripts: false,
+      pairingError: null,
+      pairingToken: '',
     })
   }
 }
 
 element('reconnect').addEventListener('click', () => {
   void chrome.runtime.sendMessage({ kind: 'reconnect' }).then(() => { void refresh() })
+})
+
+element('copy-pairing').addEventListener('click', () => {
+  const token = element('pairing-token').textContent ?? ''
+  if (token === '' || token === '读取中...') return
+  // 令牌很长, 手抄容易错位, 所以给一个复制按钮; 复制失败时至少文本可以手动选中.
+  void navigator.clipboard.writeText(token).then(() => {
+    element('pairing-state').className = 'pairing-state ok'
+    element('pairing-state').textContent = '已复制到剪贴板, 粘贴到 dsh 的 pairingToken 即可.'
+  }, () => {
+    element('pairing-state').className = 'pairing-state'
+    element('pairing-state').textContent = '自动复制不可用, 请手动选中上面的令牌复制.'
+  })
+})
+
+element('reset-pairing').addEventListener('click', () => {
+  void chrome.runtime.sendMessage({ kind: 'reset-pairing' }).then(() => { void refresh() })
 })
 
 void refresh()

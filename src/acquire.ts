@@ -27,6 +27,7 @@ export const BROWSER_TOOLS: ReadonlySet<string> = new Set([
   'browser_open',
   'browser_tabs',
   'browser_select_tab',
+  'browser_close_tab',
   'browser_snapshot',
   'browser_text',
   'browser_click',

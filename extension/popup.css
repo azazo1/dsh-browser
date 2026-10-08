@@ -7,6 +7,8 @@
   --warn: #bf8700;
   --bad: #cf222e;
   --bg: #ffffff;
+  /* 代码/令牌一类的等宽底色. */
+  --code-bg: rgb(0 0 0 / 6%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -18,6 +20,7 @@
     --warn: #d29922;
     --bad: #f85149;
     --bg: #1c2128;
+    --code-bg: rgb(255 255 255 / 8%);
   }
 }
 
@@ -94,4 +97,54 @@ button {
 
 button:hover {
   background: rgb(0 0 0 / 5%);
+}
+
+/* 配对令牌区块: 用户要在这里抄一串字符串, 所以给它独立的框与等宽字体, 便于选中与核对. */
+.pairing {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.pairing-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.pairing-hint {
+  margin: 0 0 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.pairing-token {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* 令牌很长: 允许在任意位置换行, 否则会撑破弹窗宽度. */
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.pairing-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pairing-state {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.pairing-state.bad {
+  color: var(--bad);
+}
+
+.pairing-state.ok {
+  color: var(--ok);
 }

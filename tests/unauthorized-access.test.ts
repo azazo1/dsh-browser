@@ -150,6 +150,7 @@ const CALL_ARGS: Record<string, unknown> = {
   browser_status: {},
   browser_tabs: {},
   browser_select_tab: { tabId: 1 },
+  browser_close_tab: { tabId: 1 },
   browser_snapshot: {},
   browser_text: {},
   browser_click: { token: 'tok', index: 0 },

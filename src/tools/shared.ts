@@ -122,6 +122,12 @@ export function formatStatus(
     lines.push(`连接组件: ${status.host.manifestReady ? '已安装' : '未安装'} (清单 ${status.host.manifestPath})`)
     lines.push(`扩展 id: ${status.host.extensionId}`)
   }
+  // 配对状态放在扩展连接之前: 没配对时后面所有浏览器操作都会失败, 而原因就是这个, 所以
+  // 用户应当先看到它.
+  lines.push(status.pairingConfigured
+    ? `配对令牌: 已配置${status.pairingError === null ? '' : ' (但最近一次握手被拒)'}`
+    : '配对令牌: 尚未配置 —— 请打开浏览器扩展的弹出面板复制配对令牌, 填到本插件的 pairingToken 配置项')
+  if (status.pairingError !== null) lines.push(`配对失败原因: ${status.pairingError}`)
   lines.push(`扩展连接: ${status.bridgeConnected ? '已连接' : '未连接'}${status.extensionVersion === null ? '' : ` (扩展版本 ${status.extensionVersion})`}`)
   lines.push(`绑定标签页: ${status.boundTabId === null ? '无' : `id=${String(status.boundTabId)}`}`)
   // 独占: 同一时刻只有一个会话能驱动这个浏览器. 这里要说清两件事 —— 现在归谁, 以及

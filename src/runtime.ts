@@ -60,6 +60,10 @@ export interface BrowserStatus {
   extensionVersion: string | null
   /** 浏览器求值所需的开关是否已打开; null 表示扩展没连上, 状态未知. */
   userScriptsAvailable: boolean | null
+  /** dsh 侧是否已经配置了配对令牌. */
+  pairingConfigured: boolean
+  /** 握手因配对失败被拒时的原因; null 表示没有发生过. */
+  pairingError: string | null
   /** 当前持有浏览器驱动权的会话 id; null 表示没有会话占用. */
   holderId: string | null
   /** 扩展当前绑定的标签页. */
@@ -355,6 +359,8 @@ export class BrowserRuntime {
       bridgeConnected: bridgeState.connected,
       extensionVersion: bridgeState.extensionVersion,
       userScriptsAvailable: bridgeState.userScriptsAvailable,
+      pairingConfigured: this.config.pairingToken.get() !== '',
+      pairingError: bridgeState.pairingError,
       boundTabId: bridgeState.boundTabId,
       bridgeError: bridgeState.lastError,
       launchArgs: this.launchArgs,
