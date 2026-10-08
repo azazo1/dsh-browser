@@ -14,19 +14,20 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // 类型导入: 'plugins.bundle.config' 这个 keyed slot 与 PluginConfigViewProps 的官方声明.
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
+// 类型导入: ctx.configForms 这个服务合并 (由 ui-settings 的 client face 提供).
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { BrowserSettings } from './BrowserSettings.tsx'
+import { ENTRY_ID, PACKAGE_NAME } from './entry.ts'
+import { PairingFormController } from './pairing-form.ts'
 import { en, zh } from './strings.ts'
 import type { BrowserSettingsKey } from './strings.ts'
 
 /** 文案命名空间. */
 export const NS = 'settings.dsh-browser'
 
-/** 本包名; 也是 plugins.bundle.config 这个 keyed slot 的键. */
-const PACKAGE_NAME = 'dsh-browser'
-
-/** 需要的服务. */
-export const inject = ['slots', 'locale']
+/** 需要的服务. `configForms` 用来渲染配对令牌的编辑表单. */
+export const inject = ['slots', 'locale', 'configForms']
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -53,10 +54,19 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-browser: dictionaries')
-  ctx.effect(() => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
-    name: 'plugins.bundle.config',
-    key: PACKAGE_NAME,
-    // 组件从 props 读 t; 数据由组件自己经同源接口取, 不用 store 也不订阅外部快照.
-    inject: () => ({ t: (key: BrowserSettingsKey) => t(key) }),
-  }, BrowserSettings)), 'dsh-browser: settings page')
+
+  // 配对令牌的表单: 没有它, 卡片上就没有任何可填配置的地方 —— 而提示却让用户去填那个字段.
+  const pairing = new PairingFormController(ctx.configForms.get(ENTRY_ID))
+  ctx.effect(() => () => { pairing.dispose() }, 'dsh-browser: pairing form')
+
+  ctx.effect(() => ctx.configForms.whileServed([ENTRY_ID], () => ctx.slots.inject(
+    'plugins.bundle.config',
+    () => ctx.slots.register({
+      name: 'plugins.bundle.config',
+      key: PACKAGE_NAME,
+      locale: NS,
+      // t 给文案; pairing 给令牌表单的状态与动作 (编辑 / 重置 / 保存 / 放弃).
+      inject: () => ({ t: (key: BrowserSettingsKey) => t(key), ...pairing.inject() }),
+    }, BrowserSettings),
+  )), 'dsh-browser: settings page')
 }

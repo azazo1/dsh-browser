@@ -90,6 +90,14 @@ export class BridgeServer {
   private readonly pending = new Map<number, PendingCall>()
   private readonly listeners = new Set<(state: BridgeConnectionState) => void>()
   private live: WebSocket | null = null
+  /**
+   * 当前连接在握手时报上来的配对令牌.
+   *
+   * 留着它, 是为了让**每次操作**都能重新核对一遍: 用户改配置不会触发新的握手, 所以只在 hello 时
+   * 校验一次的话, 把令牌改坏在界面上毫无效果, 直到某次重连才突然生效 —— 那等于这个开关根本不
+   * 起作用.
+   */
+  private peerPairingToken: string | undefined
   private nextId = 1
   private state: BridgeConnectionState = {
     connected: false,
@@ -145,18 +153,52 @@ export class BridgeServer {
    * 先把原因作为事件发回扩展再关闭连接: 只关连接的话, 用户看到的只是"连不上", 完全不知道
    * 要去填令牌; 把原因送到扩展面板上, 用户才知道下一步该做什么.
    *
+   * `connected` 必须在这里同步清掉, 不能等 close 事件: 配置页的"刷新状态"在同一次请求里
+   * 读状态, 若要等 close, 这次刷新仍会显示"已连接".
+   *
    * @param socket 要拒绝的连接.
    * @param reason 给用户看的拒绝原因.
    */
   private rejectPairing(socket: WebSocket, reason: string): void {
     this.ctx.logger.warn(`dsh-browser: 拒绝配对失败的连接: ${reason}`)
-    this.setState({ pairingError: reason })
+    this.setState({ pairingError: reason, connected: false })
     try {
       socket.send(JSON.stringify({ kind: 'event', event: 'pairing-rejected', payload: { reason } }))
     } catch (error) {
       this.ctx.logger.warn(`dsh-browser: 发送配对拒绝原因失败: ${String(error)}`)
     }
     socket.close(1008, 'pairing rejected')
+  }
+
+  /**
+   * 对已经握过手的连接, 用当前配置再核一次配对.
+   *
+   * 握手只发生一次, 配置改了不会触发新的握手. 不在读状态时复查的话, 用户改坏令牌再点
+   * "刷新状态", 看到的仍是握手那一刻的"已连接".
+   *
+   * @param requireHello 为 true 时, 还没收到 hello 也按失败处理 (发调用时必须已经握过手);
+   *   为 false 时跳过尚未握手的连接, 避免读状态把正在连的 socket 掐掉.
+   * @returns 失败原因; 通过或无从查时为 null.
+   */
+  private enforcePairing(requireHello: boolean): string | null {
+    const socket = this.live
+    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      return this.state.pairingError
+    }
+    if (this.peerPairingToken === undefined && !requireHello) {
+      return this.state.pairingError
+    }
+    const failure = this.checkPairing(this.peerPairingToken)
+    if (failure === null) return null
+    this.rejectPairing(socket, failure)
+    return failure
+  }
+
+  /**
+   * 读状态前调用: 让配置页的"刷新状态"看到的是当前配置下的真实连接, 而不是握手那一刻的快照.
+   */
+  syncPairing(): void {
+    this.enforcePairing(false)
   }
 
   /** 本次运行的握手令牌; 由运行时写进会合文件供 native host 使用. */
@@ -213,6 +255,19 @@ export class BridgeServer {
         '扩展当前没有连着 dsh. 请在 chrome://extensions 确认 dsh Browser 已启用, 并点开它的图标看连接状态.',
       ))
     }
+    // 每次操作前复查配对: 配置可能在连接建立之后被改掉, 而那条连接仍然开着. 不复查的话,
+    // "改坏令牌"要等到下一次重连才生效, 期间所有浏览器操作照常执行 —— 这正是用户实测到的:
+    // 填对一次之后, 即使令牌后面加了后缀也还能继续操控.
+    const pairingFailure = this.enforcePairing(true)
+    if (pairingFailure !== null) {
+      // 用专属错误码而不是 no-binding: 后者在宿主侧被映射成一段固定文案 ("扩展没有连着 dsh..."),
+      // 会把这里的配对原因整段丢掉, 于是用户看到的是"扩展没连上", 而真正的问题是他刚把令牌改错了.
+      return Promise.reject(new BridgeCallError(
+        'pairing-rejected',
+        `${pairingFailure} 当前连接已被断开, 修正之后扩展会自动重连.`,
+      ))
+    }
+
     const timeoutMs = options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS
     const id = this.nextId
     this.nextId += 1
@@ -289,7 +344,10 @@ export class BridgeServer {
       this.note('有新的 native host 连接上来, 关闭之前那条')
       previous.close(1000, 'superseded')
     }
-    this.setState({ connected: true, lastError: null })
+    // 刻意**不**在这里置 connected: 连接刚建立时还没收到 hello, 也就还没核对配对令牌.
+    // 早置会让状态面短暂谎报"已连接", 而那个连接马上会被配对检查关掉 —— 用户看到的就是
+    // "已连接"与"没配对"同时成立这种自相矛盾的画面.
+    this.peerPairingToken = undefined
 
     socket.on('message', (data) => {
       let frame: OutboundFrame
@@ -303,6 +361,7 @@ export class BridgeServer {
     })
     socket.on('close', () => {
       if (this.live === socket) this.live = null
+      this.peerPairingToken = undefined
       this.setState({ connected: false, extensionVersion: null, boundTabId: null, userScriptsAvailable: null })
       this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
     })
@@ -342,6 +401,7 @@ export class BridgeServer {
           this.rejectPairing(socket, pairingFailure)
           return
         }
+        this.peerPairingToken = hello.pairingToken
         this.setState({ pairingError: null })
         if (hello.protocolVersion !== PROTOCOL_VERSION) {
           this.note(`扩展的协议版本 ${String(hello.protocolVersion)} 与本插件 ${String(PROTOCOL_VERSION)} 不一致, 请重新加载扩展`)

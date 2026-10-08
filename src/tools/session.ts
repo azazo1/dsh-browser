@@ -98,7 +98,7 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     execute: async (_args, exec) => {
       const current = await deps.runtime.status()
       // 绑定了标签页也不代表能操作: 还要扩展连着.
-      const ready = current.chrome !== null && current.host?.manifestReady === true && current.bridgeConnected
+      const ready = current.chrome !== null && current.host?.manifestReady === true && current.bridgeConnected && current.pairingError === null
       // 带上本会话身份, 让摘要能回答"我现在能不能直接用"这个最要紧的问题.
       return { ready, text: formatStatus(current, requireAgent(exec).id) }
     },

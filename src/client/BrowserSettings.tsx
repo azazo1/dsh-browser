@@ -1,36 +1,54 @@
 /**
  * 浏览器连接设置页: 展示就绪状态, 并在缺东西时提供一键安装.
  *
- * 界面分四段:
+ * 界面按这个次序:
  *   1. 结论行   —— 现在能不能用.
- *   2. 检查清单 —— Chrome 是否找到, 连接组件是否装好, 扩展是否连上, 是否绑定了标签页.
- *   3. 手动步骤 —— 只有一步必须由用户做 (在 chrome://extensions 里加载扩展),
- *      写明具体路径并提供复制按钮.
- *   4. 细节     —— 路径, 扩展 id, 解释器, 启动参数, 排查时才需要.
+ *   2. 检查清单 —— Chrome, 连接组件, 扩展连接, 浏览器启动方式, 配对令牌, 浏览器求值, 标签页绑定.
+ *      每行的状态有四态 (正常 / 需处理 / 配置错误 / 尚不可知), 映射见 checks.ts.
+ *   3. 操作按钮 —— 安装 / 卸载连接组件, 刷新状态.
+ *   4. 手动步骤 —— 必须由用户做的事 (在 chrome://extensions 里加载扩展), 写明具体路径并提供复制按钮.
+ *   5. 配对令牌 —— 唯一一个需要**填写**的配置项, 就放在手动步骤之后: 它本身就是那些步骤的
+ *      最后一步, 连起来读最顺.
+ *   6. 细节     —— 路径, 扩展 id, 解释器, 启动参数, 排查时才需要.
  *
- * 这里不做成配置表单: 页面上的信息绝大部分是"Host 观测到的运行时状态", 不是 profile
- * 里的配置值, 塞进表单会让人以为可以改. 样式用内联样式加 dsh 的语义 token, 不引入
- * 组件库也不写死颜色.
+ * 除了配对令牌那一项, 页面上的信息都是"Host 观测到的运行时状态", 不是 profile 里的配置值,
+ * 所以它们刻意不做成输入框 —— 那会让人以为可以改. 样式用内联样式加 dsh 的语义 token,
+ * 不写死颜色.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
-import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button, Input, SettingsForm, SettingsValueField, StateDot,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { StatusPayload } from '../../shared/status.js'
 import { fetchStatus, installHost, uninstallHost } from './api.js'
+import { checks } from './checks.js'
+import type { PairingCardFace, PairingCardState } from './pairing-form.js'
 import type { BrowserSettingsKey } from './strings.js'
 
-/** 组件属性: 由 slot 注册时注入. */
-export interface BrowserSettingsProps {
-  /** 文案查找函数. */
-  t: (key: BrowserSettingsKey) => string
-}
+/** 组件属性: 由渲染器按槽位契约绑定. */
+export type BrowserSettingsProps =
+  PropsRuntime<'plugins.bundle.config'>
+  & PropsLocale<'settings.dsh-browser'>
+  & InjectFace<PairingCardFace>
 
-/** 一行检查项的渲染数据. */
-interface CheckRow {
-  key: BrowserSettingsKey
-  ok: boolean
-  detail: string
+/**
+ * 把词典拼成表单框架要的文案.
+ *
+ * @param t 文案查找函数.
+ * @returns 框架文案.
+ */
+function formLabels(t: (key: BrowserSettingsKey) => string): SettingsFormLabels {
+  return {
+    unavailable: t('formUnavailable'),
+    readOnly: t('formReadOnly'),
+    saveFailed: t('formSaveFailed'),
+    save: t('save'),
+    saving: t('saving'),
+  }
 }
 
 /** 样式片段. */
@@ -82,66 +100,6 @@ const styles = {
   detailLabel: { color: 'var(--dsw-alias-label-tertiary)' } satisfies CSSProperties,
   detailValue: { overflowWrap: 'anywhere', fontFamily: 'var(--dsw-font-mono, monospace)' } satisfies CSSProperties,
 } as const
-
-/** 状态渲染成检查清单. */
-function checks(status: StatusPayload): CheckRow[] {
-  return [
-    {
-      key: 'checkChrome',
-      ok: status.chromePath !== null,
-      detail: status.chromePath ?? status.chromeError ?? '',
-    },
-    {
-      key: 'checkHost',
-      ok: status.manifestReady,
-      // manifestStale 说明装过但内容与当前配置不符 (换了数据目录或换了密钥), 需要重装.
-      detail: status.manifestStale ? '清单内容与当前配置不一致' : (status.manifestPath ?? ''),
-    },
-    {
-      key: 'checkExtension',
-      ok: status.bridgeConnected,
-      detail: status.extensionVersion === null ? '扩展尚未连上' : `扩展版本 ${status.extensionVersion}`,
-    },
-    {
-      key: 'checkLaunch',
-      // 这一项不是"过/不过", 而是说清默认行为: 关闭时插件不会自行打开 Chrome.
-      ok: status.launchOwnChrome || status.bridgeConnected,
-      detail: status.launchOwnChrome
-        ? '允许 dsh 启动自带的独立 profile Chrome (该 profile 需单独加载一次扩展)'
-        : (status.bridgeConnected
-          ? '只用你现有的浏览器 (扩展已连上), 不自行启动 Chrome'
-          : '只用你现有的浏览器; 请打开装了扩展的那个 Chrome'),
-    },
-    {
-      key: 'checkPairing',
-      // 没配置配对令牌时整条链路都用不了, 所以这一项没通过就是真问题.
-      ok: status.pairingConfigured && status.pairingError === null,
-      detail: status.pairingError !== null
-        ? status.pairingError
-        : (status.pairingConfigured
-          ? '已配置; 扩展握手时会核对'
-          : '尚未配置: 打开浏览器扩展的弹出面板, 复制其中的配对令牌填到本插件的 pairingToken 配置项'),
-    },
-    {
-      key: 'checkEvaluate',
-      // 求值不是必须的: 没开这个开关, 其余 16 个工具照常可用, 所以它不该让整行变红,
-      // 只在未开启时说明怎么开.
-      ok: status.userScriptsAvailable !== false,
-      detail: status.userScriptsAvailable === null
-        ? '扩展未连上, 状态未知'
-        : (status.userScriptsAvailable
-          ? 'browser_evaluate 可用'
-          : '未启用; 在扩展详情页打开 Allow User Scripts 后 browser_evaluate 可用'),
-    },
-    {
-      key: 'checkBinding',
-      ok: status.boundTabId !== null,
-      detail: status.boundTabId === null
-        ? '尚未绑定标签页 (在会话里调用 browser_tabs 后选择)'
-        : `id=${String(status.boundTabId)}`,
-    },
-  ]
-}
 
 /** 一行键值展示. */
 function DetailRow(props: { label: string, value: string }): ReactElement {
@@ -197,6 +155,7 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
   }, [])
 
   const rows = useMemo(() => (status === null ? [] : checks(status)), [status])
+  const pairing = props.usePairingForm(snapshot => snapshot)
 
   return (
     <div style={styles.root}>
@@ -208,6 +167,7 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
 
       {status !== null && (
         <>
+
           <p style={styles.headline}>
             <StateDot state={status.ready ? 'done' : 'warning'} />
             <span>{props.t(status.ready ? 'ready' : 'notReady')}</span>
@@ -216,7 +176,7 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
           <div style={styles.checks}>
             {rows.map(row => (
               <div style={styles.check} key={row.key}>
-                <StateDot state={row.ok ? 'done' : 'warning'} />
+                <StateDot state={row.state} />
                 <span style={styles.checkName}>{props.t(row.key)}</span>
                 <span style={styles.checkDetail}>{row.detail}</span>
               </div>
@@ -266,6 +226,32 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
               </ul>
             )}
           </section>
+
+          {/*
+            配对令牌的表单紧跟在"需要手动完成"那一节之后: 它本身就是那些手动步骤里的最后一步,
+            放在这里读起来是连贯的 (先看该做什么, 再就地填进去). 而状态清单与按钮属于"看情况",
+            放在前面会把这件必须做的事往后推.
+          */}
+          <SettingsForm
+            labels={formLabels(props.t)}
+            state={pairing}
+            onSave={props.save}
+            onDiscard={props.discard}
+          >
+            <SettingsValueField
+              id="plugin-config-dsh-browser-pairing-token"
+              label={props.t('tokenLabel')}
+              hint={props.t('tokenHint')}
+              overriddenLabel={props.t('overridden')}
+              resetLabel={props.t('reset')}
+              invalidLabel={props.t('invalidToken')}
+              placeholder={props.t('tokenPlaceholder')}
+              disabled={!pairing.writable}
+              {...pairing.pairingToken}
+              onEdit={(text) => { props.edit('pairingToken', text) }}
+              onReset={() => { props.resetField('pairingToken') }}
+            />
+          </SettingsForm>
 
           <section style={styles.details}>
             <Button variant="outline" onClick={() => { setShowDetails(value => !value) }}>

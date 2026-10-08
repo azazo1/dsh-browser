@@ -73,7 +73,7 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
     pairingError: status.pairingError,
     launchArgs: status.launchArgs,
     manualSteps: status.nextSteps,
-    ready: status.chrome !== null && status.bridgeConnected,
+    ready: status.chrome !== null && status.bridgeConnected && status.pairingError === null,
   }
 }
 

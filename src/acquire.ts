@@ -79,13 +79,13 @@ export function acquireReason(toolName: string, args: unknown, occupantId: strin
   const stated = args !== null && typeof args === 'object' && 'justification' in args
     ? (args as { justification?: unknown }).justification
     : undefined
-  const because = typeof stated === 'string' && stated.trim() !== '' ? ` 它给的理由: ${stated.trim()}` : ''
-  const who = occupantId === null
-    ? '当前没有会话占用浏览器.'
-    : `浏览器现在归会话 ${occupantId} 使用; 同意后它会交到本会话手上, 那个会话之后的调用会重新申请.`
-  return `会话请求使用浏览器, 即将调用 ${toolName}.${because} ${who} `
-    + '浏览器平面同一时刻只服务一个会话 (分发给扩展的 profile 只有一个, 扩展内部也只有一个"当前绑定标签页"), '
-    + '所以要由用户决定现在归谁.'
+  const because = typeof stated === 'string' && stated.trim() !== '' ? stated.trim() : ''
+  // 实现上同一时刻只能有一个会话驱动浏览器, 但弹窗里不必讲 profile / 绑定标签页.
+  // justification 是模型写给用户看的那句话, 放在最后, 后面不再追加任何内容.
+  const head = occupantId === null
+    ? `这个会话要用浏览器 (${toolName}).`
+    : `这个会话要用浏览器 (${toolName}). 现在由会话 ${occupantId} 占用, 同意后会转交过来.`
+  return because === '' ? head : `${head} ${because}`
 }
 
 /** 申请的结果. */

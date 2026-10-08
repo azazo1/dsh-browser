@@ -167,6 +167,8 @@ export type ErrorCode =
   | 'forbidden'
   /** 目标是所在窗口里最后一个标签页, 关掉它等于关闭窗口. */
   | 'last-tab'
+  /** 配对令牌不匹配, 连接已被拒绝. */
+  | 'pairing-rejected'
   /** 超时. */
   | 'timeout'
   /** 其余未分类失败. */

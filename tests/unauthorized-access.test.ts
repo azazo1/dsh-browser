@@ -42,6 +42,7 @@ function makeBridge(): {
   const bridge = {
     token: 'tok',
     connectionState: { connected: false, extensionVersion: null, boundTabId: null, lastError: null, userScriptsAvailable: null },
+    syncPairing: () => undefined,
     /**
      * 记录这次调用.
      * @param method 方法名.

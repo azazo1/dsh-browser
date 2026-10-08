@@ -87,7 +87,56 @@ function stubRequire(name: string): unknown {
   if (name === '@deepseek-ai/dsh-client-ui-primitives') {
     // 组件只需要可被当作 JSX 元素类型使用; 返回占位组件即可.
     const stub = (props: unknown) => ({ type: 'stub', props })
-    return { Button: stub, Input: stub, StateDot: stub, SettingsForm: stub }
+    return {
+      Button: stub,
+      Input: stub,
+      StateDot: stub,
+      SettingsForm: stub,
+      SettingsValueField: stub,
+      // 表单模型与字段规格在 apply 期间就会被构造, 所以桩必须真的提供它们.
+      // 这里只实现"够 apply 跑通"的最小行为: 本组测试关心的是加载演练 (见文件头),
+      // 表单编辑语义由 tests/checks.test.ts 与 tests/pairing-entry-id.test.ts 覆盖.
+      settingsTextField: (field: string) => ({
+        field,
+        format: (value: unknown) => (typeof value === 'string' ? value : ''),
+        parse: (text: string) => (text === '' ? { kind: 'clear' } : { kind: 'set', value: text }),
+      }),
+      SettingsFormModel: class {
+        /**
+         * @param scope 表单作用域.
+         * @param specs 字段规格.
+         */
+        constructor(private readonly scope: unknown, private readonly specs: unknown[]) { void scope; void specs }
+
+        /**
+         * 绑定一个投影.
+         * @param project 投影函数.
+         * @returns 只提供 getSnapshot 的快照存储桩.
+         */
+        bind(project: () => unknown): unknown { return { getSnapshot: project } }
+
+        /**
+         * 卡片级状态.
+         * @returns 最小状态.
+         */
+        shell(): unknown { return { available: true, writable: true, dirty: false, invalid: false, saving: false, failed: false } }
+
+        /**
+         * 单字段状态.
+         * @returns 最小状态.
+         */
+        field(): unknown { return { text: '', overridden: false, invalid: false } }
+
+        /**
+         * 表单动作.
+         * @returns 空动作.
+         */
+        actions(): unknown { return { edit: () => {}, resetField: () => {}, save: () => {}, discard: () => {} } }
+
+        /** 释放订阅. */
+        dispose(): void {}
+      },
+    }
   }
   throw new Error(`演练壳子没有为 ${name} 提供桩; 该模块应当被声明为 external 或内联`)
 }
@@ -139,6 +188,38 @@ function makeContext(): { ctx: Context, dispose: () => void } {
       return () => {}
     },
   })
+  // configForms: 配对令牌的表单靠它拿共享表单. 这里给一个最小可用的作用域 (只读快照 + 空订阅),
+  // 因为本组测试关心的是"apply 能不能跑通", 而不是表单编辑本身 (那由 checks 与 pairing 两组覆盖).
+  ctx.provide('configForms', {
+    /**
+     * 取某个条目 id 的表单作用域.
+     * @param _id 条目 id.
+     * @returns 只读的表单作用域桩.
+     */
+    get: (_id: string) => ({
+      getSnapshot: () => ({
+        status: 'ready',
+        value: {},
+        base: {},
+        user: {},
+        writable: true,
+        revision: 1,
+      }),
+      subscribe: () => () => {},
+      mutate: async () => true,
+    }),
+    /**
+     * 只在条目被服务时执行注册回调; 桩里直接执行.
+     * @param ids 条目 id 列表.
+     * @param register 注册回调.
+     * @returns 注册结果的取消函数.
+     */
+    whileServed: (ids: readonly string[], register: (served: Set<string>) => (() => void) | void) => {
+      void ids
+      return register(new Set(ids)) ?? (() => {})
+    },
+  })
+
   ctx.provide('slots', {
     /**
      * 注册一个 slot 条目.

@@ -38,6 +38,17 @@ export type BrowserSettingsKey =
   | 'boundTab'
   | 'none'
   | 'stale'
+  | 'tokenLabel'
+  | 'tokenHint'
+  | 'tokenPlaceholder'
+  | 'invalidToken'
+  | 'overridden'
+  | 'reset'
+  | 'save'
+  | 'saving'
+  | 'formUnavailable'
+  | 'formReadOnly'
+  | 'formSaveFailed'
 
 /** 中文文案. */
 export const zh: Record<BrowserSettingsKey, string> = {
@@ -57,7 +68,7 @@ export const zh: Record<BrowserSettingsKey, string> = {
   uninstall: '卸载连接组件',
   refresh: '刷新状态',
   installing: '正在安装...',
-  manualTitle: '需要手动完成的一步',
+  manualTitle: '需要手动完成',
   manualLoad: 'Chrome 只允许用户本人加载未打包的扩展. 打开 chrome://extensions, 开启右上角的开发者模式, 点"加载已解压的扩展程序", 然后选中下面这个目录. 装一次即可, 之后重启浏览器都会自动加载.',
   copy: '复制路径',
   copied: '已复制',
@@ -72,6 +83,18 @@ export const zh: Record<BrowserSettingsKey, string> = {
   boundTab: '绑定标签页',
   none: '无',
   stale: '检测到已装的连接组件与当前配置不一致 (可能换过数据目录或扩展密钥). 点"安装连接组件"即可重装.',
+  tokenLabel: '配对令牌',
+  tokenHint: '点浏览器工具栏上的 dsh Browser 图标, 复制弹出面板里的配对令牌, 粘贴到这里再点保存. '
+    + '没配对之前浏览器操作会被拒绝. 这个值明文显示, 因为它需要和扩展面板里那串核对.',
+  tokenPlaceholder: '粘贴扩展面板里显示的令牌',
+  invalidToken: '这个值不被接受',
+  overridden: '已覆盖',
+  reset: '恢复默认',
+  save: '保存',
+  saving: '正在保存...',
+  formUnavailable: '这个配置项当前没有被任何 profile 条目服务, 因此无法编辑.',
+  formReadOnly: '当前部署的配置是只读的, 保存会被拒绝.',
+  formSaveFailed: '保存没有生效, 草稿已保留, 请修正后重试.',
 }
 
 /** 英文文案. */
@@ -92,7 +115,7 @@ export const en: Record<BrowserSettingsKey, string> = {
   uninstall: 'Uninstall connection pieces',
   refresh: 'Refresh',
   installing: 'Installing...',
-  manualTitle: 'One manual step',
+  manualTitle: 'Manual step',
   manualLoad: 'Chrome only lets the user load an unpacked extension. Open chrome://extensions, turn on Developer mode, click "Load unpacked", and select the directory below. This is needed once; later browser restarts load it automatically.',
   copy: 'Copy path',
   copied: 'Copied',
@@ -107,4 +130,16 @@ export const en: Record<BrowserSettingsKey, string> = {
   boundTab: 'Bound tab',
   none: 'none',
   stale: 'The installed connection pieces do not match the current configuration (the data directory or extension key changed). Click "Install connection pieces" to reinstall.',
+  tokenLabel: 'Pairing token',
+  tokenHint: 'Open the dsh Browser popup from the toolbar, copy its pairing token, paste it here and save. '
+    + 'Browser operations are refused until this matches. The value is shown in clear because it must be compared with the popup.',
+  tokenPlaceholder: 'Paste the token shown in the extension popup',
+  invalidToken: 'This value is not accepted',
+  overridden: 'Overridden',
+  reset: 'Reset',
+  save: 'Save',
+  saving: 'Saving...',
+  formUnavailable: 'No profile entry serves this configuration, so it cannot be edited.',
+  formReadOnly: 'This deployment stores settings read-only, so saving would be refused.',
+  formSaveFailed: 'The save did not land; your draft is kept, fix it and try again.',
 }

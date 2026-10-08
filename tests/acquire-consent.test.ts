@@ -114,7 +114,7 @@ function makeHarness(approval: unknown, askOnAcquire = true): {
   const ctx = new Context() as Context & Record<string, unknown>
   ;(ctx as unknown as { provide: (name: string, value: unknown) => void }).provide('webServer', { port: 54_213 })
   const config = Config({ askOnAcquire })
-  const bridge = { token: 'tok', call: async () => undefined, connectionState: { connected: false } }
+  const bridge = { token: 'tok', call: async () => undefined, connectionState: { connected: false }, syncPairing: () => undefined }
   const runtime = new BrowserRuntime(ctx, config, bridge as never)
   const request = async (
     agent: Agent,
@@ -323,9 +323,9 @@ describe('浏览器驱动权的申请与让出', () => {
     // 不碰浏览器的工具不问.
     expect(needsBrowserConsent({ toolName: 'browser_status', holdsBrowser: false, enabled: true })).toBe(false)
 
-    // 有持有者时理由要指名道姓; 没有时要说清无人占用.
+    // 有持有者时理由要点出是谁, 没有时不要扯到转交.
     expect(acquireReason('browser_click', {}, 'session-a')).toContain('session-a')
-    expect(acquireReason('browser_click', {}, null)).toContain('没有会话占用')
+    expect(acquireReason('browser_click', {}, null)).not.toContain('转交')
     // 工具自带的理由要带进去, 那是模型对"为什么需要浏览器"的说明.
     expect(acquireReason('browser_open', { justification: '查今天的行情' }, null)).toContain('查今天的行情')
   })
