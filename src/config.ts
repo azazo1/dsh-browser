@@ -57,7 +57,7 @@ export interface Config {
 /**
  * 会破坏本插件前提的命令行参数.
  *
- * 本插件的整个价值在于"没有调试协议、扩展可用、用指定 profile", 所以这三类参数
+ * 本插件的整个价值在于"没有调试协议, 扩展可用, 用指定 profile", 所以这三类参数
  * 不能由配置开出来: 加了调试端口等于把 CDP 平面请回来, 关掉扩展等于把控制通道
  * 拆掉, 改 user-data-dir 会让 native messaging 与扩展安装状态全部错位.
  */
@@ -76,7 +76,7 @@ const FORBIDDEN_ARG_PREFIXES = [
  *
  * 刻意不给它加 `Schema<Config>` 注解: schemastery 对 `Volatile<T | undefined>`
  * 这类字段的推断与显式注解不一致, 官方插件也都是让类型自行推断 (见 llm-deepseek
- * 与 agent-default-model)。
+ * 与 agent-default-model).
  */
 export const Config = Schema.object({
   chromePath: Schema.string().volatile(),

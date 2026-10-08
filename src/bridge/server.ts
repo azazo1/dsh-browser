@@ -77,7 +77,7 @@ interface PendingCall {
 function isLoopbackHost(req: IncomingMessage): boolean {
   const host = req.headers.host
   if (host === undefined || host === '') return false
-  // 允许 127.0.0.1:<port>、localhost:<port>、[::1]:<port>, 明确排除域名.
+  // 允许 127.0.0.1:<port>, localhost:<port>, [::1]:<port>, 明确排除域名.
   const bare = host.startsWith('[') ? host.slice(0, host.indexOf(']') + 1) : host.split(':')[0] ?? ''
   return bare === '127.0.0.1' || bare === 'localhost' || bare === '[::1]'
 }

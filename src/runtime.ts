@@ -140,10 +140,10 @@ export function describeBridgeError(error: unknown): string {
  * 造一份浏览器资源.
  *
  * 资源是"能驱动浏览器"的凭据, 所以它的每一次调用都要重新确认持有者仍然被授予 —— 授权可能
- * 在资源还活着的时候被转给别的会话, 那时旧资源必须立刻失效, 而不是继续替旧会话操作页面。
+ * 在资源还活着的时候被转给别的会话, 那时旧资源必须立刻失效, 而不是继续替旧会话操作页面.
  *
  * 单独抽成函数是为了让这条守卫可以被直接测试: 否则它只存在于 `openResource` 内部, 而要让
- * `openResource` 跑通就得准备好真的 native messaging 清单, 测试会很脆。
+ * `openResource` 跑通就得准备好真的 native messaging 清单, 测试会很脆.
  *
  * @param input 构造输入.
  * @param input.bridge 桥.
@@ -158,10 +158,10 @@ export function makeResource(input: {
 }): { value: BrowserResource, close: () => Promise<void> } {
   return {
     value: {
-      // 标成 async 是有意的: 这样"未授予"会变成 rejected promise, 而不是同步抛出。声明上
+      // 标成 async 是有意的: 这样"未授予"会变成 rejected promise, 而不是同步抛出. 声明上
       // 返回的就是 Promise, 调用方 (通常写 `await resource.call(...)`) 两边都能接住, 但
       // 让失败走 promise 通道更符合这个签名, 也不会在 `expect(...)` 一类只接 promise 的
-      // 写法里变成意外抛错。
+      // 写法里变成意外抛错.
       call: async (method, args, callSignal, options) => {
         input.assertGranted()
         return await input.bridge.call(method, args, {
@@ -390,7 +390,7 @@ export class BrowserRuntime {
    *   - 如果会合文件要等到某次 browser_open 才出现, 那么"用户装好扩展但还没开始用"
    *     的这段时间里, host 一直空转, 扩展侧只看到"连着但没反应".
    *
-   * 之前正是这个时序问题: 用户点了"安装连接组件"、装好了扩展, host 也在跑, 但会合
+   * 之前正是这个时序问题: 用户点了"安装连接组件", 装好了扩展, host 也在跑, 但会合
    * 文件不存在, 于是链路整段不通, 而界面上看不出原因.
    *
    * @returns 写入完成时 resolve; 失败只记日志, 不阻塞插件加载.
@@ -410,10 +410,10 @@ export class BrowserRuntime {
   /**
    * 为一个会话创建资源: 检查组件, 写会合文件, 起浏览器, 等扩展连上来.
    *
-   * **这里是浏览器侧唯一的收口**: 启动 Chrome 与产出"可调用桥的资源"都只发生在此。所以
+   * **这里是浏览器侧唯一的收口**: 启动 Chrome 与产出"可调用桥的资源"都只发生在此. 所以
    * 授予检查也放在这里 —— 只要不满足, 就既不会起浏览器, 也不会得到能驱动它的东西, 无论
-   * 调用方是从哪条路走进来的。放在每个工具里各查一遍是不够的: 那样任何一条新增或遗漏的
-   * 路径都会变成绕过。(`run()` 里还查一次, 只是为了给出更能照着做的错误信息。)
+   * 调用方是从哪条路走进来的. 放在每个工具里各查一遍是不够的: 那样任何一条新增或遗漏的
+   * 路径都会变成绕过. (`run()` 里还查一次, 只是为了给出更能照着做的错误信息.)
    *
    * @param agent 发起调用的会话.
    * @param signal 取消信号.

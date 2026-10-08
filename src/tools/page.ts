@@ -119,7 +119,7 @@ export function pageTools(deps: ToolDeps): ToolDefinition[] {
     description:
       '向当前页面快照里的一个输入框或可编辑区域填入文本. 需要快照编号与元素编号. '
       + '填入会走元素原型上的 value setter 并派发 input/change 事件, 因此 React 一类受控组件也能识别. '
-      + 'submit 为 true 时会在填入后发送 Enter 键 (用于触发搜索框、聊天输入框等). '
+      + 'submit 为 true 时会在填入后发送 Enter 键 (用于触发搜索框, 聊天输入框等). '
       + '注意: 文件上传框不能用文本填入, 那种操作需要用户手动完成.',
     parameters: {
       token: { type: 'string', required: true, description: 'browser_snapshot 返回的快照编号' },

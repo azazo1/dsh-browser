@@ -71,7 +71,7 @@ describe('会合文件', () => {
 
 describe('插件加载即发布桥地址', () => {
   it('apply 之后无需任何工具调用, 会合文件就已经存在', async () => {
-    // 直接驱动 runtime 的发布动作: 它必须能在没有会话、没有工具调用的情况下完成.
+    // 直接驱动 runtime 的发布动作: 它必须能在没有会话, 没有工具调用的情况下完成.
     const { Config, resolvePaths } = await import('../src/config.ts')
     const { BrowserRuntime } = await import('../src/runtime.ts')
     const { BridgeServer } = await import('../src/bridge/server.ts')

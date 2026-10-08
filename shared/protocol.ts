@@ -91,7 +91,7 @@ export interface HelloPayload {
    * 扩展自己生成并在界面上展示的配对令牌.
    *
    * 用户把它抄进 dsh 的插件配置, 握手时由 dsh 核对: 对不上就拒绝这条连接. 方向是"扩展
-   * 向 dsh 证明自己", 因为令牌是在扩展侧生成并展示、由人抄进 dsh 的.
+   * 向 dsh 证明自己", 因为令牌是在扩展侧生成并展示, 由人抄进 dsh 的.
    */
   pairingToken?: string
 }

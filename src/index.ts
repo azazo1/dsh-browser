@@ -134,7 +134,7 @@ export function apply(ctx: Context, input: ConfigShape): void {
   // 浏览器申请: 会话第一次要用浏览器时, 由用户决定给不给.
   //
   // 判定与"先问后给"的次序都在 src/acquire.ts 里, 那里也能被直接测试 —— 决定"第二个会话
-  // 怎么才能用上"的逻辑如果只在这条钩子里, 就只能靠读代码确认。
+  // 怎么才能用上"的逻辑如果只在这条钩子里, 就只能靠读代码确认.
   ctx.on('tools/pre-execute', async (exec, next) => {
     const decision = await next()
     if (decision.kind !== 'allow') return decision

@@ -81,7 +81,7 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     description:
       '查询浏览器平面的完整状态: Chrome 二进制位置, 持久 profile 目录, 连接组件是否装好, '
       + '扩展是否连上, 当前绑定了哪个标签页, 以及为了让状态可用还需要做什么. '
-      + '连接出问题、或不确定能不能操作时先用它, 而不是盲目重试页面工具.',
+      + '连接出问题, 或不确定能不能操作时先用它, 而不是盲目重试页面工具.',
     parameters: {},
     presentCall: () => ({ card: 'generic', title: '查询浏览器状态' }),
     output: {
@@ -212,7 +212,7 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     description:
       '把浏览器驱动权交出去. 浏览器同一时刻只服务一个会话, 所以当别的会话要用时, 你可以用本工具'
       + '主动让出, 而不必等自己的会话结束. 让出之后本会话若还要用, 下一次浏览器调用会重新弹审批. '
-      + '用完浏览器时主动让出是好习惯: 另一个会话的申请就不必等本会话被切走或结束。'
+      + '用完浏览器时主动让出是好习惯: 另一个会话的申请就不必等本会话被切走或结束. '
       + '本工具不需要审批, 因为它只是放弃, 不取得任何东西.',
     parameters: {},
     presentCall: () => ({ card: 'generic', title: '交还浏览器驱动权' }),
