@@ -58,6 +58,10 @@ export interface BrowserStatus {
   bridgeConnected: boolean
   /** 扩展清单版本. */
   extensionVersion: string | null
+  /** 浏览器求值所需的开关是否已打开; null 表示扩展没连上, 状态未知. */
+  userScriptsAvailable: boolean | null
+  /** 当前持有浏览器驱动权的会话 id; null 表示没有会话占用. */
+  holderId: string | null
   /** 扩展当前绑定的标签页. */
   boundTabId: number | null
   /** 桥层的最近一次异常. */
@@ -97,26 +101,73 @@ export class BrowserUnavailableError extends Error {
   }
 }
 
-/** 把桥层的调用错误翻成给模型看的说明. */
+/**
+ * 把桥层的调用错误翻成给模型看的说明.
+ *
+ * 各分支只补"扩展侧说不出来"的那部分: 扩展知道发生了什么, 但不知道调用方该怎么纠正,
+ * 所以这里加的是下一步动作. 扩展侧已经说过的原因不重复 —— 早先 injection-blocked
+ * 分支把"内部页面不能操作"说了两遍 (扩展的 blockedReason 里已经讲过), 读起来像两句
+ * 同一句话, 也没有多出任何信息.
+ */
 export function describeBridgeError(error: unknown): string {
   const bridgeError = error as Partial<BridgeCallError>
+  const detail = bridgeError.message ?? ''
   if (typeof bridgeError.code === 'string') {
     switch (bridgeError.code) {
       case 'no-binding':
         return '扩展没有连着 dsh. 请确认扩展已安装并在 chrome://extensions 中是启用状态, 然后点它的图标查看连接状态; 若显示未连接, 请到本插件的配置页点「安装连接组件」.'
       case 'stale-target':
-        return `${bridgeError.message ?? ''} 请重新调用 browser_snapshot 获取最新结构后再操作.`
+        return `${detail} 请重新调用 browser_snapshot 获取最新结构后再操作.`
       case 'unknown-element':
-        return `${bridgeError.message ?? ''} 编号来自最近一次 browser_snapshot, 请重新取快照确认编号.`
+        return `${detail} 编号来自最近一次 browser_snapshot, 请重新取快照确认编号.`
       case 'injection-blocked':
-        return `${bridgeError.message ?? ''} 浏览器内部页面 (chrome:// 等) 无法被扩展操作, 这是 Chrome 的限制.`
+        // 扩展已经说明了是哪种页面以及为什么, 这里不再复述原因.
+        return detail
       case 'timeout':
-        return `${bridgeError.message ?? ''} 页面可能还在加载; 稍后重试或先用 browser_wait 等待特定文本.`
+        return `${detail} 页面可能还在加载; 稍后重试或先用 browser_wait 等待特定文本.`
       default:
-        return bridgeError.message ?? String(error)
+        return detail === '' ? String(error) : detail
     }
   }
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 造一份浏览器资源.
+ *
+ * 资源是"能驱动浏览器"的凭据, 所以它的每一次调用都要重新确认持有者仍然被授予 —— 授权可能
+ * 在资源还活着的时候被转给别的会话, 那时旧资源必须立刻失效, 而不是继续替旧会话操作页面。
+ *
+ * 单独抽成函数是为了让这条守卫可以被直接测试: 否则它只存在于 `openResource` 内部, 而要让
+ * `openResource` 跑通就得准备好真的 native messaging 清单, 测试会很脆。
+ *
+ * @param input 构造输入.
+ * @param input.bridge 桥.
+ * @param input.assertGranted 确认持有者仍被授予; 不满足时抛错.
+ * @param input.onClose 资源被释放时的回调.
+ * @returns 资源与其释放入口.
+ */
+export function makeResource(input: {
+  bridge: BridgeServer
+  assertGranted: () => void
+  onClose: () => void
+}): { value: BrowserResource, close: () => Promise<void> } {
+  return {
+    value: {
+      // 标成 async 是有意的: 这样"未授予"会变成 rejected promise, 而不是同步抛出。声明上
+      // 返回的就是 Promise, 调用方 (通常写 `await resource.call(...)`) 两边都能接住, 但
+      // 让失败走 promise 通道更符合这个签名, 也不会在 `expect(...)` 一类只接 promise 的
+      // 写法里变成意外抛错。
+      call: async (method, args, callSignal, options) => {
+        input.assertGranted()
+        return await input.bridge.call(method, args, {
+          signal: callSignal,
+          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        })
+      },
+    },
+    close: async () => { input.onClose() },
+  }
 }
 
 /**
@@ -124,6 +175,19 @@ export function describeBridgeError(error: unknown): string {
  */
 export class BrowserRuntime {
   private readonly resources: SessionResources<BrowserResource>
+  /**
+   * 当前被授予浏览器驱动权的会话.
+   *
+   * 只有一个会话能持有它, 这是硬约束: 分发给扩展的 profile 只有一个, 扩展内部也只维持
+   * 一个"当前绑定标签页", 两个会话同时驱动会互相踩.
+   *
+   * 授予的转移**必须经过用户审批** (见 src/index.ts 里的 tools/pre-execute 钩子), 所以
+   * 这里只负责记住状态, 不自己做仲裁.
+   */
+  private granted: Agent | null = null
+
+  /** 已经登记过"作用域回收时放弃授予"的会话, 避免重复登记. */
+  private readonly grantWatchers = new WeakSet<Agent>()
   private launchArgs: string[] | null = null
   private lastLaunchError: string | null = null
   private opening: Promise<void> | null = null
@@ -140,7 +204,10 @@ export class BrowserRuntime {
   ) {
     this.resources = new SessionResources<BrowserResource>(ctx, {
       label: 'dsh-browser',
-      exclusive: true,
+      // 刻意关掉库自带的独占: 它只认"先到先得", 一旦某个会话取得就不再让出, 也就没法
+      // 把浏览器交给另一个会话. 换手由下面这层"授予"来仲裁 —— 授予的转移必须经过用户
+      // 审批, 而不是库里的先到先得.
+      exclusive: false,
       open: async (agent, signal) => this.openResource(agent, signal),
     })
     ctx.effect(() => () => this.resources.dispose(), 'dsh-browser: session resources')
@@ -157,17 +224,6 @@ export class BrowserRuntime {
   }
 
   /**
-   * 取当前会话的浏览器资源; 必要时启动浏览器并等待扩展连上来.
-   *
-   * @param agent 发起调用的会话.
-   * @param signal 取消信号.
-   * @returns 可用的浏览器资源.
-   */
-  async acquire(agent: Agent, signal: AbortSignal): Promise<BrowserResource> {
-    return this.resources.get(agent, signal)
-  }
-
-  /**
    * 在一个会话上串行执行一次浏览器操作.
    *
    * @param agent 发起调用的会话.
@@ -176,7 +232,84 @@ export class BrowserRuntime {
    * @returns 操作结果.
    */
   async run<R>(agent: Agent, signal: AbortSignal, operation: (resource: BrowserResource) => Promise<R>): Promise<R> {
+    // 只有被授予的会话能驱动浏览器. 授予不会在这里自动发生 —— 它必须由审批钩子完成,
+    // 否则就成了"静默取得", 而用户要的恰恰是"每次换手都让用户决定".
+    if (this.granted !== agent) throw this.notGrantedError()
     return this.resources.run(agent, signal, operation)
+  }
+
+  /**
+   * 生成"这个会话还没有驱动权"的错误.
+   *
+   * 措辞刻意指向**下一步怎么做**, 而不是只说被拒绝: 用户与模型都需要知道"再发起一次调用
+   * 就会弹审批".
+   *
+   * @returns 错误实例.
+   */
+  private notGrantedError(): Error {
+    const occupant = this.granted
+    return new BrowserUnavailableError(
+      occupant === null
+        ? '本会话还没有取得浏览器. 请直接用浏览器工具发起一次调用 —— 那次调用会先征求用户同意, 同意后即可使用.'
+        : `浏览器现在归会话 ${occupant.id} 使用. 请直接发起调用: 那次调用会征求用户同意, 同意后浏览器会交到本会话手上.`,
+    )
+  }
+
+  /** 当前被授予驱动权的会话 id; null 表示没有会话持有. */
+  get grantedId(): string | null {
+    return this.granted?.id ?? null
+  }
+
+  /**
+   * 判断一个会话此刻是否持有驱动权.
+   *
+   * @param agent 会话.
+   * @returns 持有为 true.
+   */
+  holdsBrowser(agent: Agent): boolean {
+    return this.granted === agent
+  }
+
+  /**
+   * 把驱动权授予一个会话; 若原本属于别人, 则从对方手上收回.
+   *
+   * 调用前必须已经取得用户同意 (由审批钩子负责), 本方法不自行判断.
+   *
+   * @param agent 要授予的会话.
+   */
+  grant(agent: Agent): void {
+    if (this.granted === agent) return
+    const previous = this.granted
+    this.granted = agent
+    if (previous !== null) {
+      this.ctx.logger.info(`dsh-browser: 浏览器驱动权由会话 ${previous.id} 交给会话 ${agent.id}`)
+    }
+    // 会话结束时自动放弃: 否则一个已经消失的会话会永远占着, 后面谁也用不了.
+    //
+    // 登记在会话自己的作用域上, 因为作用域回收正是"这个会话结束了"的准确信号 ——
+    // 每轮对话结束不是, 请求结束也不是.
+    if (!this.grantWatchers.has(agent)) {
+      this.grantWatchers.add(agent)
+      agent.ctx.effect(() => () => {
+        if (this.granted === agent) {
+          this.granted = null
+          this.ctx.logger.info(`dsh-browser: 会话 ${agent.id} 已结束, 浏览器驱动权回到无人持有`)
+        }
+      }, 'dsh-browser: browser grant')
+    }
+  }
+
+  /**
+   * 主动放弃驱动权.
+   *
+   * @param agent 要放弃的会话.
+   * @returns 这次调用是否真的放掉了 (不是持有者就没什么可放的).
+   */
+  release(agent: Agent): boolean {
+    if (this.granted !== agent) return false
+    this.granted = null
+    this.ctx.logger.info(`dsh-browser: 会话 ${agent.id} 主动释放浏览器驱动权`)
+    return true
   }
 
   /** 采集完整状态; 不启动浏览器, 只做只读探测. */
@@ -221,9 +354,11 @@ export class BrowserRuntime {
       hostError,
       bridgeConnected: bridgeState.connected,
       extensionVersion: bridgeState.extensionVersion,
+      userScriptsAvailable: bridgeState.userScriptsAvailable,
       boundTabId: bridgeState.boundTabId,
       bridgeError: bridgeState.lastError,
       launchArgs: this.launchArgs,
+      holderId: this.grantedId,
       nextSteps,
     }
   }
@@ -266,8 +401,21 @@ export class BrowserRuntime {
     }
   }
 
-  /** 为一个会话创建资源: 检查组件, 写会合文件, 起浏览器, 等扩展连上来. */
+  /**
+   * 为一个会话创建资源: 检查组件, 写会合文件, 起浏览器, 等扩展连上来.
+   *
+   * **这里是浏览器侧唯一的收口**: 启动 Chrome 与产出"可调用桥的资源"都只发生在此。所以
+   * 授予检查也放在这里 —— 只要不满足, 就既不会起浏览器, 也不会得到能驱动它的东西, 无论
+   * 调用方是从哪条路走进来的。放在每个工具里各查一遍是不够的: 那样任何一条新增或遗漏的
+   * 路径都会变成绕过。(`run()` 里还查一次, 只是为了给出更能照着做的错误信息。)
+   *
+   * @param agent 发起调用的会话.
+   * @param signal 取消信号.
+   * @returns 资源与其释放入口.
+   * @throws BrowserUnavailableError 该会话尚未被授予驱动权时抛出.
+   */
   private async openResource(agent: Agent, signal: AbortSignal): Promise<{ value: BrowserResource, close: () => Promise<void> }> {
+    if (this.granted !== agent) throw this.notGrantedError()
     if (this.config.installHostAutomatically.get()) {
       // 幂等, 重复执行只是覆盖同一批文件.
       await installHost(this.paths)
@@ -278,19 +426,16 @@ export class BrowserRuntime {
     await this.ensureBrowser(signal)
     const bridge = this.bridge
     const agentLabel = agent.id
-    this.ctx.logger.info(`dsh-browser: 会话 ${agentLabel} 取得浏览器驱动权`)
-    return {
-      value: {
-        call: (method, args, callSignal, options) => bridge.call(method, args, {
-          signal: callSignal,
-          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-        }),
-      },
-      close: async () => {
-        // 刻意不关 Chrome: 这是用户的持久浏览器, 会话结束不该把它带走.
+    this.ctx.logger.info(`dsh-browser: 会话 ${agentLabel} 完成浏览器资源准备`)
+    return makeResource({
+      bridge,
+      // 每次调用都重新问一次"现在是否仍被授予", 而不是在构造时定下来: 资源可能在授权被
+      // 转走之后还活着, 那时它必须立刻失效, 而不是继续替旧会话驱动浏览器.
+      assertGranted: () => { if (this.granted !== agent) throw this.notGrantedError() },
+      onClose: () => {
         this.ctx.logger.info(`dsh-browser: 会话 ${agentLabel} 释放浏览器驱动权 (Chrome 保持运行)`)
       },
-    }
+    })
   }
 
   /**

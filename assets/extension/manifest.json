@@ -12,6 +12,8 @@
     "tabs",
     "storage",
     "alarms"
+  ,
+    "userScripts"
   ],
   "host_permissions": [
     "<all_urls>"

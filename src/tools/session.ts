@@ -8,7 +8,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { DEFAULT_CALL_TIMEOUT_MS } from '../../shared/protocol.js'
-import { formatStatus, formatTabs, runBrowser } from './shared.js'
+import { formatStatus, formatTabs, requireAgent, runBrowser } from './shared.js'
 import type { ToolDeps } from './shared.js'
 
 /**
@@ -22,9 +22,10 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     description:
       '确保浏览器平面可用. 扩展已经连上时直接复用它所在的浏览器, 不启动任何新窗口; '
       + '只有在扩展尚未连接时才由本插件以独立持久 profile 启动 Chrome (不使用 Chrome 调试协议, '
-      + 'profile 持久, 登录态与历史跨会话保留). 首次在会话中启动前会请求用户审批, '
-      + '审批理由取自 justification 参数. 调用前请想好一句能让人看懂的 justification, '
-      + '不要写"用户要求打开浏览器"这类空话.',
+      + 'profile 持久, 登录态与历史跨会话保留). '
+      + '浏览器同一时刻只服务一个会话, 所以每个会话第一次用它时都会弹一次审批, 由用户决定现在归谁; '
+      + 'justification 参数会展示给用户, 调用前请想好一句能让人看懂的话, 不要写"用户要求打开浏览器"这类空话. '
+      + '交出驱动权用 browser_release.',
     parameters: {
       justification: {
         type: 'string',
@@ -98,7 +99,8 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
       const current = await deps.runtime.status()
       // 绑定了标签页也不代表能操作: 还要扩展连着.
       const ready = current.chrome !== null && current.host?.manifestReady === true && current.bridgeConnected
-      return { ready, text: formatStatus(current) }
+      // 带上本会话身份, 让摘要能回答"我现在能不能直接用"这个最要紧的问题.
+      return { ready, text: formatStatus(current, requireAgent(exec).id) }
     },
   })
 
@@ -169,5 +171,40 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     }),
   })
 
-  return [open, status, tabs, selectTab]
+  const release = defineTool({
+    name: 'browser_release',
+    description:
+      '把浏览器驱动权交出去. 浏览器同一时刻只服务一个会话, 所以当别的会话要用时, 你可以用本工具'
+      + '主动让出, 而不必等自己的会话结束. 让出之后本会话若还要用, 下一次浏览器调用会重新弹审批. '
+      + '用完浏览器时主动让出是好习惯: 另一个会话的申请就不必等本会话被切走或结束。'
+      + '本工具不需要审批, 因为它只是放弃, 不取得任何东西.',
+    parameters: {},
+    presentCall: () => ({ card: 'generic', title: '交还浏览器驱动权' }),
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          released: { type: 'boolean', required: true, description: '这次调用是否真的交出了驱动权' },
+          text: { type: 'string', required: true, description: '执行说明' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: value.text }],
+    },
+    execute: async (_args, exec) => {
+      const agent = requireAgent(exec)
+      const released = deps.runtime.release(agent)
+      return {
+        released,
+        text: released
+          ? '已交出浏览器驱动权; 别的会话现在可以申请使用. 本会话若还要用, 下一次浏览器调用会重新弹审批.'
+          // 不是持有者时说清楚, 免得模型以为"释放过了"而重复调用.
+          : (deps.runtime.grantedId === null
+              ? '本会话没有持有浏览器驱动权, 而且现在也没有别的会话持有; 无需释放.'
+              : `本会话没有持有浏览器驱动权, 它现在归会话 ${deps.runtime.grantedId} 使用; 无需释放.`),
+      }
+    },
+  })
+
+  return [open, status, tabs, selectTab, release]
 }

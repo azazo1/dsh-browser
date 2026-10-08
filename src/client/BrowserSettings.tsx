@@ -103,6 +103,17 @@ function checks(status: StatusPayload): CheckRow[] {
       detail: status.extensionVersion === null ? '扩展尚未连上' : `扩展版本 ${status.extensionVersion}`,
     },
     {
+      key: 'checkEvaluate',
+      // 求值不是必须的: 没开这个开关, 其余 16 个工具照常可用, 所以它不该让整行变红,
+      // 只在未开启时说明怎么开.
+      ok: status.userScriptsAvailable !== false,
+      detail: status.userScriptsAvailable === null
+        ? '扩展未连上, 状态未知'
+        : (status.userScriptsAvailable
+          ? 'browser_evaluate 可用'
+          : '未启用; 在扩展详情页打开 Allow User Scripts 后 browser_evaluate 可用'),
+    },
+    {
       key: 'checkBinding',
       ok: status.boundTabId !== null,
       detail: status.boundTabId === null

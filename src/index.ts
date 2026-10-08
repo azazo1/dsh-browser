@@ -28,10 +28,13 @@ import { BridgeServer } from './bridge/server.js'
 import { newToken } from './bridge/rendezvous.js'
 import { Config } from './config.js'
 import type { Config as ConfigShape } from './config.js'
+import { requestBrowserAccess } from './acquire.js'
 import { installHost } from './native-host/install.js'
 import { BrowserRuntime } from './runtime.js'
 import { registerApi } from './server.js'
+import { advancedTools } from './tools/advanced.js'
 import { pageTools } from './tools/page.js'
+import { screenshotTool } from './tools/screenshot.js'
 import { sessionTools } from './tools/session.js'
 
 /** 插件模块名. */
@@ -81,33 +84,6 @@ const GUIDANCE = `本会话的 browser_* 工具驱动一个由 dsh 启动的持�
 - Chrome 内部页面 (chrome:// 等) 和扩展商店页面无法被操作, 这是浏览器的限制.`
 
 /**
- * 首次启动审批的判定.
- *
- * @param input 判定输入.
- * @returns 是否需要征求同意.
- */
-function needsLaunchConsent(input: {
-  toolName: string
-  boundTabId: number | null
-  granted: boolean
-  enabled: boolean
-}): boolean {
-  if (!input.enabled) return false
-  if (input.granted) return false
-  // 只有"要开始用浏览器"这一类工具才需要理由; 纯状态查询不打扰用户.
-  if (input.toolName !== 'browser_open') return false
-  // 已经绑着标签页说明本会话早就征得同意了.
-  return input.boundTabId === null
-}
-
-/** 从工具参数里取审批理由. */
-function justificationOf(args: unknown): string | undefined {
-  if (args === null || typeof args !== 'object') return undefined
-  const value = (args as { justification?: unknown }).justification
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined
-}
-
-/**
  * 装配插件.
  *
  * @param ctx 插件上下文.
@@ -135,7 +111,12 @@ export function apply(ctx: Context, input: ConfigShape): void {
   })
 
   // 工具.
-  const tools = [...sessionTools({ runtime }), ...pageTools({ runtime })]
+  const tools = [
+    ...sessionTools({ runtime }),
+    ...pageTools({ runtime }),
+    ...advancedTools({ runtime }),
+    screenshotTool({ runtime, screenshotsDir: () => runtime.paths.screenshotsDir }),
+  ]
   ctx.effect(() => {
     const disposers = tools.map(tool => ctx.tools.register(tool))
     return () => {
@@ -150,24 +131,24 @@ export function apply(ctx: Context, input: ConfigShape): void {
     order: ctx.systemPrompt.getSectionOrder('TOOL_COMPUTER_USE'),
   })
 
-  // 首次启动审批: 借用工具运行时的 ask 决策, 于是问题会走到组合里配置的应答者
-  // (Web GUI 的审批面板), 记进会话日志, 并遵守会话的审批策略.
+  // 浏览器申请: 会话第一次要用浏览器时, 由用户决定给不给.
+  //
+  // 判定与"先问后给"的次序都在 src/acquire.ts 里, 那里也能被直接测试 —— 决定"第二个会话
+  // 怎么才能用上"的逻辑如果只在这条钩子里, 就只能靠读代码确认。
   ctx.on('tools/pre-execute', async (exec, next) => {
     const decision = await next()
     if (decision.kind !== 'allow') return decision
-    const enabled = input.confirmFirstLaunch.get()
-    const granted = runtime.boundTabId !== null
-    if (!needsLaunchConsent({ toolName: exec.name, boundTabId: runtime.boundTabId, granted, enabled })) return decision
-    if (ctx.get('approval') === undefined) return decision
-    const justification = justificationOf(exec.arguments)
-    if (justification === undefined) {
-      return {
-        kind: 'deny',
-        reason: '首次启动浏览器前需要用户审批, 而审批理由必须由你给出. '
-          + '请改用 browser_open 工具重试, 并在 justification 参数里用一句话说明为什么这个会话需要打开浏览器.',
-      }
-    }
-    return { kind: 'ask', reason: `首次在本会话中启动 dsh 的 Chrome. 理由: ${justification}. 同意后本会话内的浏览器操作不再询问.` }
+    if (exec.agent === undefined) return decision
+    return await requestBrowserAccess({
+      runtime,
+      config: input,
+      approval: ctx.get('approval'),
+      agent: exec.agent,
+      toolName: exec.name,
+      callId: exec.callId,
+      args: exec.arguments,
+      signal: exec.signal,
+    })
   })
 
   // 配置页接口.

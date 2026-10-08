@@ -95,8 +95,18 @@ export function formatSnapshot(snapshot: SnapshotResult): string {
   return lines.join('\n')
 }
 
-/** 把状态对象渲染成一段给模型读的中文摘要. */
-export function formatStatus(status: Awaited<ReturnType<BrowserRuntime['status']>>): string {
+/**
+ * 把状态对象渲染成一段给模型读的中文摘要.
+ *
+ * @param status 运行时状态.
+ * @param selfId 发起查询的会话 id; 给出时会说明"本会话是否持有", 因为这决定了下一次
+ *   浏览器调用会不会弹审批.
+ * @returns 状态摘要.
+ */
+export function formatStatus(
+  status: Awaited<ReturnType<BrowserRuntime['status']>>,
+  selfId?: string,
+): string {
   const lines: string[] = []
   lines.push(`Chrome: ${status.chrome === null ? `未找到 (${status.chromeError ?? '未知原因'})` : `${status.chrome.path} (来源: ${status.chrome.source})`}`)
   lines.push(`持久 profile: ${status.profileDir}`)
@@ -114,6 +124,22 @@ export function formatStatus(status: Awaited<ReturnType<BrowserRuntime['status']
   }
   lines.push(`扩展连接: ${status.bridgeConnected ? '已连接' : '未连接'}${status.extensionVersion === null ? '' : ` (扩展版本 ${status.extensionVersion})`}`)
   lines.push(`绑定标签页: ${status.boundTabId === null ? '无' : `id=${String(status.boundTabId)}`}`)
+  // 独占: 同一时刻只有一个会话能驱动这个浏览器. 这里要说清两件事 —— 现在归谁, 以及
+  // "本会话能不能直接用", 因为后者决定了下一次调用会不会弹审批.
+  const holder = status.holderId === null ? '无会话持有' : `会话 ${status.holderId}`
+  const mine = selfId === undefined
+    ? ''
+    : (status.holderId === selfId
+        ? ' (本会话持有: 可以直接操作)'
+        : ' (本会话未持有: 下一次浏览器调用会先弹审批申请)')
+  lines.push(`驱动权: ${holder}${mine}`)
+  // 求值能力取决于一个只能由用户手动打开的开关, 所以这里直接说清楚, 免得模型反复试
+  // browser_evaluate 才发现不能用.
+  if (status.userScriptsAvailable !== null) {
+    lines.push(`浏览器求值 (browser_evaluate): ${status.userScriptsAvailable
+      ? '可用'
+      : '未启用, 需要在扩展详情页打开 "Allow User Scripts" 开关; 期间可用 browser_query 取数据'}`)
+  }
   if (status.bridgeError !== null) lines.push(`最近异常: ${status.bridgeError}`)
   if (status.nextSteps.length > 0) {
     lines.push('')

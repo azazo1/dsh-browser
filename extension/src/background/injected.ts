@@ -409,3 +409,312 @@ export function fillElement(snapshotKey: string, token: string, index: number, t
   }
   return { ok: true, note }
 }
+
+/** 分块上传的暂存区挂在页面侧的这个属性名上. */
+export const UPLOAD_KEY = '__dshBrowserUploads'
+
+/**
+ * 按选择器取结构化数据.
+ *
+ * 这是 `browser_evaluate` 的窄替代: 用选择器表达"要哪些元素", 而不是让模型写任意 JS.
+ * 好处是结果形状固定, 一定能过 JSON 边界, 而且在页面 CSP 严格时照样可用.
+ *
+ * 与快照的区别: 快照只收**可见**的可交互元素并给编号, 供操作使用; 这里收**全部**匹配项
+ * (含隐藏元素), 供读数使用. 两者目的不同, 所以不共用一套过滤.
+ *
+ * @param selector CSS 选择器.
+ * @param limit 最多返回多少条.
+ * @param maxChars 每条文本与属性值的字符上限.
+ * @returns 匹配结果.
+ */
+export function queryElements(selector: string, limit: number, maxChars: number): {
+  ok: true
+  url: string
+  title: string
+  total: number
+  truncated: boolean
+  items: { index: number, tag: string, text: string, attributes: Record<string, string> }[]
+} | { ok: false, code: string, message: string } {
+  const clip = (value: string): string => {
+    const flat = value.replace(/\s+/gu, ' ').trim()
+    return flat.length <= maxChars ? flat : `${flat.slice(0, maxChars)}...`
+  }
+
+  let matched: Element[]
+  try {
+    matched = Array.from(globalThis.document.querySelectorAll(selector))
+  } catch (error) {
+    // 选择器写错是最常见的失败, 直接把浏览器的原因带回去, 比"查询失败"有用得多.
+    return {
+      ok: false,
+      code: 'bad-selector',
+      message: `选择器无法解析: ${selector} (${error instanceof Error ? error.message : String(error)})`,
+    }
+  }
+
+  const kept = matched.slice(0, limit)
+  const items = kept.map((element, index) => {
+    const attributes: Record<string, string> = {}
+    for (const attribute of Array.from(element.attributes)) {
+      attributes[attribute.name] = clip(attribute.value)
+    }
+    // 优先 innerText (它反映渲染后的文本); 用鸭子类型判断而不是 `instanceof HTMLElement`,
+    // 因为 SVG 元素与 MathML 元素本来就不是 HTMLElement, 而它们在页面上同样常见.
+    const candidate = element as { innerText?: unknown }
+    const raw = typeof candidate.innerText === 'string' ? candidate.innerText : (element.textContent ?? '')
+    return {
+      index,
+      tag: element.tagName.toLowerCase(),
+      text: clip(raw),
+      attributes,
+    }
+  })
+
+  return {
+    ok: true,
+    url: globalThis.location.href,
+    title: globalThis.document.title,
+    total: matched.length,
+    truncated: matched.length > kept.length,
+    items,
+  }
+}
+
+/**
+ * 悬停到一个编号元素上.
+ *
+ * 点击与悬停是两种不同的交互: 下拉菜单, 悬浮提示, 以及"删除按钮只在 hover 后出现"这类
+ * 界面都只认鼠标移入, 单靠 click 到不了. 所以这里派发完整的移入序列, 顺序与真实鼠标
+ * 一致 (先 pointerover/pointerenter, 再 mouseover/mousemove/mouseenter).
+ *
+ * @param snapshotKey 编号表挂载的属性名.
+ * @param token 快照编号.
+ * @param index 元素编号.
+ * @returns 悬停说明.
+ */
+export function hoverElement(snapshotKey: string, token: string, index: number): { ok: true, note: string } | { ok: false, code: string, message: string } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 页面侧私有挂载点.
+  const table = (globalThis as any)[snapshotKey] as { token: string, elements: Element[] } | undefined
+  if (table === undefined || table.token !== token) {
+    return { ok: false, code: 'stale-target', message: '页面已经变化, 请重新获取快照' }
+  }
+  const element = table.elements[index]
+  if (element === undefined) {
+    return { ok: false, code: 'unknown-element', message: `编号 ${index} 不在最近一次快照中` }
+  }
+  if (!element.isConnected) {
+    return { ok: false, code: 'stale-target', message: '该元素已从页面移除, 请重新获取快照' }
+  }
+
+  const describe = (el: Element): string => {
+    const role = el.getAttribute('role') ?? el.tagName.toLowerCase()
+    const label = (el.getAttribute('aria-label') ?? (el as HTMLElement).innerText ?? el.textContent ?? '').replace(/\s+/gu, ' ').trim()
+    const short = label.length > 60 ? `${label.slice(0, 60)}...` : label
+    return `<${role}> ${short}`.trim()
+  }
+
+  if (typeof (element as HTMLElement).scrollIntoView === 'function') {
+    ;(element as HTMLElement).scrollIntoView({ block: 'center', inline: 'center' })
+  }
+  const rect = element.getBoundingClientRect()
+  const x = rect.left + rect.width / 2
+  const y = rect.top + rect.height / 2
+  // 事件初始化对象里的 view 需要 Window 类型; 注入环境里它就是全局对象.
+  const view = globalThis as unknown as Window
+  const base: MouseEventInit = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view }
+  const pointer: PointerEventInit = { ...base, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: -1, buttons: 0 }
+  element.dispatchEvent(new PointerEvent('pointerover', pointer))
+  element.dispatchEvent(new PointerEvent('pointerenter', { ...pointer, bubbles: false }))
+  element.dispatchEvent(new MouseEvent('mouseover', base))
+  element.dispatchEvent(new MouseEvent('mousemove', base))
+  element.dispatchEvent(new MouseEvent('mouseenter', { ...base, bubbles: false }))
+
+  return { ok: true, note: `已悬停到 ${describe(element)}; 若依赖它出现菜单, 请用 browser_snapshot 确认是否出现新元素` }
+}
+
+/**
+ * 开始暂存一个待上传的文件.
+ *
+ * 上传走分块而不是单次传输, 原因是硬限制: Chrome 对 native messaging 从宿主发往扩展的
+ * 单条消息限制在 1 MB, 而一个文件往往大于它. 所以宿主按块发, 页面侧先暂存, 最后一次性
+ * 组装成 File.
+ *
+ * @param uploadKey 暂存区挂载的属性名.
+ * @param name 文件名.
+ * @param mime MIME 类型.
+ * @param bytes 文件总字节数, 收尾时用来校验.
+ * @returns 本次暂存的 id.
+ */
+export function uploadBegin(uploadKey: string, name: string, mime: string, bytes: number): { ok: true, uploadId: string, note: string } | { ok: false, code: string, message: string } {
+  if (typeof bytes !== 'number' || bytes < 0) {
+    return { ok: false, code: 'internal', message: `文件字节数无效: ${String(bytes)}` }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 页面侧私有挂载点.
+  const store = ((globalThis as any)[uploadKey] ??= { sequence: 0, pending: {} }) as {
+    sequence: number
+    pending: Record<string, { name: string, mime: string, bytes: number, chunks: Uint8Array[], received: number }>
+  }
+  store.sequence += 1
+  const uploadId = `up-${String(store.sequence)}-${String(Date.now())}`
+  store.pending[uploadId] = { name, mime, bytes, chunks: [], received: 0 }
+  return { ok: true, uploadId, note: `已开始接收 ${name} (${String(bytes)} 字节)` }
+}
+
+/**
+ * 追加一块文件内容.
+ *
+ * @param uploadKey 暂存区挂载的属性名.
+ * @param uploadId 暂存 id.
+ * @param data base64 编码的字节.
+ * @returns 已收到的字节数.
+ */
+export function uploadChunk(uploadKey: string, uploadId: string, data: string): { ok: true, received: number, note: string } | { ok: false, code: string, message: string } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 页面侧私有挂载点.
+  const store = (globalThis as any)[uploadKey] as { pending: Record<string, { name: string, bytes: number, chunks: Uint8Array[], received: number }> } | undefined
+  const entry = store?.pending[uploadId]
+  if (entry === undefined) {
+    return { ok: false, code: 'internal', message: `没有找到上传 ${uploadId} 的暂存区, 请重新开始上传` }
+  }
+  let binary: string
+  try {
+    binary = globalThis.atob(data)
+  } catch (error) {
+    return { ok: false, code: 'internal', message: `分块不是合法的 base64: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  const chunk = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) chunk[i] = binary.charCodeAt(i) & 0xff
+  entry.chunks.push(chunk)
+  entry.received += chunk.length
+  if (entry.received > entry.bytes) {
+    return { ok: false, code: 'internal', message: `收到的内容 (${String(entry.received)} 字节) 超过了声明的 ${String(entry.bytes)} 字节` }
+  }
+  return { ok: true, received: entry.received, note: `${entry.name} 已收到 ${String(entry.received)}/${String(entry.bytes)} 字节` }
+}
+
+/**
+ * 把暂存的字节变成真正的 File 并装进文件输入框.
+ *
+ * 为什么不用路径: 浏览器不允许脚本给 `input[type=file]` 指派磁盘路径 —— 否则网页就能
+ * 悄悄上传任意本地文件. 但**允许**指派由内容构造出来的 File 对象, 因为内容本来就是
+ * 调用方自己给的. 所以这里把宿主读到的字节在页面里重建为 File, 再经 DataTransfer 装进
+ * 输入框并派发 change, 效果与用户选文件一致, 全程不碰调试协议.
+ *
+ * 目标用选择器而不是快照编号: 文件输入框几乎总是被藏起来 (点按钮才能触发), 而快照只收
+ * 可见元素, 用编号会找不到它.
+ *
+ * @param uploadKey 暂存区挂载的属性名.
+ * @param selector 目标文件输入框的选择器.
+ * @param nth 同名匹配里的第几个, 从 0 开始.
+ * @param uploadIds 要装入的暂存 id, 按顺序.
+ * @returns 装入结果.
+ */
+export function uploadCommit(uploadKey: string, selector: string, nth: number, uploadIds: string[]): {
+  ok: true
+  files: { name: string, bytes: number, mime: string }[]
+  note: string
+} | { ok: false, code: string, message: string } {
+  let candidates: Element[]
+  try {
+    candidates = Array.from(globalThis.document.querySelectorAll(selector))
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'bad-selector',
+      message: `选择器无法解析: ${selector} (${error instanceof Error ? error.message : String(error)})`,
+    }
+  }
+  const inputs = candidates.filter((element) => element.tagName === 'INPUT' && (element as HTMLInputElement).type === 'file')
+  if (inputs.length === 0) {
+    return {
+      ok: false,
+      code: 'unknown-element',
+      message: `选择器 ${selector} 没有匹配到 input[type=file]. 页面上现有 ${String(candidates.length)} 个元素匹配该选择器, 但都不是文件输入框`,
+    }
+  }
+  const input = inputs[nth] as HTMLInputElement | undefined
+  if (input === undefined) {
+    return { ok: false, code: 'unknown-element', message: `选择器 ${selector} 匹配到 ${String(inputs.length)} 个文件输入框, 没有第 ${String(nth)} 个` }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 页面侧私有挂载点.
+  const store = (globalThis as any)[uploadKey] as { pending: Record<string, { name: string, mime: string, bytes: number, chunks: Uint8Array[], received: number }> } | undefined
+  if (store === undefined) {
+    return { ok: false, code: 'internal', message: '暂存区不见了, 页面可能已经重新加载, 请重新上传' }
+  }
+
+  const built: File[] = []
+  for (const uploadId of uploadIds) {
+    const entry = store.pending[uploadId]
+    if (entry === undefined) {
+      return { ok: false, code: 'internal', message: `没有找到上传 ${uploadId} 的内容, 请重新开始上传` }
+    }
+    if (entry.received !== entry.bytes) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: `${entry.name} 只收到 ${String(entry.received)}/${String(entry.bytes)} 字节, 内容不完整, 未装入输入框`,
+      }
+    }
+    const merged = new Uint8Array(entry.received)
+    let offset = 0
+    for (const chunk of entry.chunks) {
+      merged.set(chunk, offset)
+      offset += chunk.length
+    }
+    built.push(new File([merged], entry.name, { type: entry.mime }))
+  }
+
+  if (built.length > 1 && !input.multiple) {
+    return {
+      ok: false,
+      code: 'unknown-element',
+      message: `该输入框不接受多文件, 但这次准备了 ${String(built.length)} 个; 请只传一个文件`,
+    }
+  }
+
+  const transfer = new DataTransfer()
+  for (const file of built) transfer.items.add(file)
+  input.files = transfer.files
+  input.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+
+  const actual = Array.from(input.files ?? []).map(file => ({ name: file.name, bytes: file.size, mime: file.type }))
+  if (actual.length !== built.length) {
+    // 指派被页面自己清掉或改写时如实说明, 不要让调用方以为装进去了.
+    return {
+      ok: false,
+      code: 'internal',
+      message: `已尝试装入 ${String(built.length)} 个文件, 但输入框当前只剩 ${String(actual.length)} 个, 页面可能自行重置了选择`,
+    }
+  }
+
+  for (const uploadId of uploadIds) delete store.pending[uploadId]
+  const summary = actual.map(file => `${file.name} (${String(file.bytes)} 字节)`).join(', ')
+  return {
+    ok: true,
+    files: actual,
+    note: `已装入 ${String(actual.length)} 个文件: ${summary}. 若表单需要提交, 请再点提交按钮`,
+  }
+}
+
+/**
+ * 丢弃暂存的上传内容.
+ *
+ * 上传中途失败时调用, 避免把半个文件留在页面侧占内存.
+ *
+ * @param uploadKey 暂存区挂载的属性名.
+ * @param uploadIds 要丢弃的暂存 id.
+ * @returns 丢弃数量.
+ */
+export function uploadAbort(uploadKey: string, uploadIds: string[]): { ok: true, aborted: number, note: string } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 页面侧私有挂载点.
+  const store = (globalThis as any)[uploadKey] as { pending: Record<string, unknown> } | undefined
+  let aborted = 0
+  for (const uploadId of uploadIds) {
+    if (store !== undefined && store.pending[uploadId] !== undefined) {
+      delete store.pending[uploadId]
+      aborted += 1
+    }
+  }
+  return { ok: true, aborted, note: `已丢弃 ${String(aborted)} 个未完成的上传` }
+}

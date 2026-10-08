@@ -17,13 +17,21 @@ import {
   PageError,
   clickByIndex,
   fillByIndex,
+  hoverByIndex,
   navigateTab,
   pressKeyInTab,
+  queryInTab,
   readText,
   scrollInTab,
   snapshotPage,
+  uploadAbortInTab,
+  uploadBeginInTab,
+  uploadChunkInTab,
+  uploadCommitInTab,
   waitForText,
 } from './page.js'
+import { captureTab } from './screenshot.js'
+import { evaluateInTab } from './evaluate.js'
 import { activateTab, closeTab, getTab, listTabs, openTab } from './tabs.js'
 
 /** 单条日志的前缀, 便于在 chrome://extensions 的日志里筛出本扩展. */
@@ -129,6 +137,41 @@ async function dispatch(method: string, args: Record<string, unknown>): Promise<
       return readText(await ensureBoundTabAlive())
     case 'page.waitFor':
       return waitForText(await ensureBoundTabAlive(), String(args.text), Number(args.timeoutMs ?? 10_000))
+    case 'page.query':
+      return queryInTab(
+        await ensureBoundTabAlive(),
+        String(args.selector),
+        Number(args.limit ?? 50),
+        Number(args.maxChars ?? 200),
+      )
+    case 'page.hover':
+      return hoverByIndex(await ensureBoundTabAlive(), String(args.token), Number(args.index))
+    case 'page.uploadBegin':
+      return uploadBeginInTab(
+        await ensureBoundTabAlive(),
+        String(args.name),
+        String(args.mime),
+        Number(args.bytes),
+      )
+    case 'page.uploadChunk':
+      return uploadChunkInTab(await ensureBoundTabAlive(), String(args.uploadId), String(args.data))
+    case 'page.uploadCommit':
+      return uploadCommitInTab(
+        await ensureBoundTabAlive(),
+        String(args.selector),
+        Number(args.nth ?? 0),
+        args.uploadIds as string[],
+      )
+    case 'page.uploadAbort':
+      return uploadAbortInTab(await ensureBoundTabAlive(), args.uploadIds as string[])
+    case 'page.screenshot':
+      return captureTab(await ensureBoundTabAlive(), args.format === 'jpeg' ? 'jpeg' : 'png')
+    case 'page.evaluate':
+      return evaluateInTab(
+        await ensureBoundTabAlive(),
+        String(args.expression),
+        args.world === 'main' ? 'main' : 'isolated',
+      )
     default:
       throw new PageError('internal', `未知方法 ${method}`)
   }
@@ -192,6 +235,7 @@ function greet(): void {
       extensionId,
       version: chrome.runtime.getManifest().version,
       boundTabId,
+      userScripts: userScriptsAvailable(),
     },
   })
   // 绑定目标可能已经被关掉, 顺手清理一次, 免得宿主拿到过期编号.
@@ -202,9 +246,26 @@ function greet(): void {
 
 const bridge = new NativeBridge(handleFrame, greet, log)
 
+/**
+ * 浏览器求值能力是否可用.
+ *
+ * 它取决于用户在扩展详情页手动打开的 "Allow User Scripts" 开关, 而不是扩展自己能决定的
+ * 事. 所以把它报给宿主, 让配置页直接显示状态 —— 否则用户只会看到求值工具报一句"权限没
+ * 打开", 还得自己去猜开关在哪.
+ *
+ * @returns 可用为 true.
+ */
+function userScriptsAvailable(): boolean {
+  try {
+    return (chrome as unknown as { userScripts?: unknown }).userScripts !== undefined
+  } catch {
+    return false
+  }
+}
+
 /** 状态查询入口: popup 和宿主都可能问. */
-function statusSnapshot(): BridgeStatus & { boundTabId: number | null, hostName: string } {
-  return { ...bridge.getStatus(), boundTabId, hostName: NATIVE_HOST_NAME }
+function statusSnapshot(): BridgeStatus & { boundTabId: number | null, hostName: string, userScripts: boolean } {
+  return { ...bridge.getStatus(), boundTabId, hostName: NATIVE_HOST_NAME, userScripts: userScriptsAvailable() }
 }
 
 // popup 每次打开会发一条 status 请求, 拿到当前连接与绑定状态.

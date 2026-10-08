@@ -36,6 +36,15 @@ export interface BridgeConnectionState {
   boundTabId: number | null
   /** 最近一次断开或校验失败的原因. */
   lastError: string | null
+  /**
+   * 扩展侧 "Allow User Scripts" 开关是否已打开, 也就是浏览器求值能不能用.
+   *
+   * 这个开关只能由用户在扩展详情页手动打开, 插件自己开不了, 所以必须把状态报出来 ——
+   * 否则用户唯一能看到的只是求值工具报一句"权限没打开".
+   *
+   * null 表示扩展尚未连上, 状态未知 (而不是"不支持").
+   */
+  userScriptsAvailable: boolean | null
 }
 
 /** 一次调用的失败; code 与协议里的错误类别一致, 便于工具层生成提示. */
@@ -75,7 +84,13 @@ export class BridgeServer {
   private readonly listeners = new Set<(state: BridgeConnectionState) => void>()
   private live: WebSocket | null = null
   private nextId = 1
-  private state: BridgeConnectionState = { connected: false, extensionVersion: null, boundTabId: null, lastError: null }
+  private state: BridgeConnectionState = {
+    connected: false,
+    extensionVersion: null,
+    boundTabId: null,
+    lastError: null,
+    userScriptsAvailable: null,
+  }
 
   /**
    * @param ctx 插件上下文, 用于挂升级路由.
@@ -229,7 +244,7 @@ export class BridgeServer {
     })
     socket.on('close', () => {
       if (this.live === socket) this.live = null
-      this.setState({ connected: false, extensionVersion: null, boundTabId: null })
+      this.setState({ connected: false, extensionVersion: null, boundTabId: null, userScriptsAvailable: null })
       this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
     })
     socket.on('error', (error) => {
@@ -265,6 +280,8 @@ export class BridgeServer {
           connected: true,
           extensionVersion: typeof hello.version === 'string' ? hello.version : null,
           boundTabId: typeof hello.boundTabId === 'number' ? hello.boundTabId : null,
+          // 老版本扩展不会报这个字段; 缺失时按"未知"而不是"不支持"处理.
+          userScriptsAvailable: typeof hello.userScripts === 'boolean' ? hello.userScripts : null,
         })
       }
       if (frame.event === 'tab-changed' || frame.event === 'detached') {

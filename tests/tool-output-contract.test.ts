@@ -19,10 +19,15 @@
  * 工具自己声明的 output.schema.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { advancedTools } from '../src/tools/advanced.ts'
 import { pageTools } from '../src/tools/page.ts'
+import { screenshotTool } from '../src/tools/screenshot.ts'
 import { sessionTools } from '../src/tools/session.ts'
 import type { BrowserResource, BrowserRuntime } from '../src/runtime.ts'
 import type { BrowserMethod } from '../shared/methods.ts'
@@ -59,6 +64,30 @@ const EXTENSION_RESULTS: Record<string, unknown> = {
     truncated: false,
   },
   'page.waitFor': { found: true, note: '在 https://www.google.com/ 找到了 "今日热点"' },
+  'page.query': {
+    url: 'https://www.google.com/',
+    title: 'Google',
+    total: 3,
+    truncated: false,
+    items: [
+      { index: 0, tag: 'a', text: 'Gmail', attributes: { href: 'https://mail.google.com/' } },
+      { index: 1, tag: 'a', text: '图片', attributes: { href: 'https://www.google.com/imghp' } },
+    ],
+  },
+  'page.hover': { note: '已悬停到 <button> 菜单' },
+  'page.uploadBegin': { uploadId: 'up-1-1', note: '已开始接收 note.txt (5 字节)' },
+  'page.uploadChunk': { received: 5, note: 'note.txt 已收到 5/5 字节' },
+  'page.uploadCommit': { files: [{ name: 'note.txt', bytes: 5, mime: 'text/plain' }], note: '已装入 1 个文件' },
+  'page.uploadAbort': { aborted: 1, note: '已丢弃 1 个未完成的上传' },
+  'page.screenshot': {
+    // 一个最小的 1x1 PNG, base64 已去掉 data URL 前缀.
+    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+    format: 'png',
+    width: 1512,
+    height: 900,
+    url: 'https://www.google.com/',
+  },
+  'page.evaluate': { value: '"Google"', truncated: false, valueType: 'string' },
 }
 
 /** 造一个只替换扩展层的假运行时; 其余字段照真实现填. */
@@ -68,6 +97,9 @@ function fakeRuntime(): BrowserRuntime {
   }
   return {
     boundTabId: 1391393307,
+    grantedId: 'agent-test',
+    holdsBrowser: () => true,
+    release: () => true,
     run: async (_agent, _signal, operation) => operation(resource),
     status: async () => ({
       chrome: { path: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', source: 'standard-path' },
@@ -86,6 +118,12 @@ function fakeRuntime(): BrowserRuntime {
   } as unknown as BrowserRuntime
 }
 
+/** 上传与截图要碰真实文件系统, 所以这两个用例需要临时目录. */
+let tempRoot = ''
+
+/** 一批临时文件, 供上传工具真读; 用例结束后清掉. */
+let uploadFile = ''
+
 /** 每个工具的调用参数; 覆盖全部 browser_* 工具. */
 const CALL_ARGS: Record<string, unknown> = {
   browser_open: { justification: '验证浏览器平面' },
@@ -100,15 +138,36 @@ const CALL_ARGS: Record<string, unknown> = {
   browser_scroll: { direction: 'down', amount: 850 },
   browser_navigate: { url: 'https://www.google.com/' },
   browser_wait: { text: '今日热点', timeoutMs: 5_000 },
+  browser_query: { selector: 'a[href]', limit: 10 },
+  browser_hover: { token: 'muz34laa-ws7emahg', index: 1 },
+  browser_upload: { file_paths: [] as string[], selector: 'input[type=file]' },
+  browser_screenshot: { format: 'png' },
+  browser_evaluate: { expression: 'document.title', world: 'isolated' },
+  browser_release: {},
 }
 
 /** 所有工具定义, 按名字索引. */
 let tools: Map<string, ToolDefinition>
 
-beforeEach(() => {
+beforeEach(async () => {
+  tempRoot = await mkdtemp(join(tmpdir(), 'dsh-browser-contract-'))
+  uploadFile = join(tempRoot, 'note.txt')
+  await writeFile(uploadFile, 'hello', 'utf8')
+  // 上传工具要读真实文件, 截图工具要写真实文件, 所以两者都指向临时目录.
+  CALL_ARGS['browser_upload'] = { file_paths: [uploadFile], selector: 'input[type=file]' }
+
   const deps = { runtime: fakeRuntime() }
-  const all = [...sessionTools(deps), ...pageTools(deps)]
+  const all = [
+    ...sessionTools(deps),
+    ...pageTools(deps),
+    ...advancedTools(deps),
+    screenshotTool({ ...deps, screenshotsDir: () => join(tempRoot, 'screenshots') }),
+  ]
   tools = new Map(all.map(tool => [tool.name, tool]))
+})
+
+afterEach(async () => {
+  await rm(tempRoot, { recursive: true, force: true })
 })
 
 /**
@@ -130,16 +189,22 @@ describe('每个 browser_* 工具的产物都是 harness 认可的 lossless JSON
     // 期望的工具名清单写死在这里: 新增工具而忘了给它加用例时, 这条会失败.
     expect([...tools.keys()].sort()).toEqual([
       'browser_click',
+      'browser_evaluate',
       'browser_fill',
+      'browser_hover',
       'browser_navigate',
       'browser_open',
       'browser_press_key',
+      'browser_query',
+      'browser_release',
+      'browser_screenshot',
       'browser_scroll',
       'browser_select_tab',
       'browser_snapshot',
       'browser_status',
       'browser_tabs',
       'browser_text',
+      'browser_upload',
       'browser_wait',
     ])
   })

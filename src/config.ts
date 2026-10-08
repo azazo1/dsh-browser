@@ -27,8 +27,13 @@ export interface Config {
   dataDir: Volatile<string | undefined>
   /** 额外传给 Chrome 的命令行参数, 每项一个完整参数. */
   extraArgs: Volatile<string[]>
-  /** 首次在会话中启动浏览器前是否征求用户同意. */
-  confirmFirstLaunch: Volatile<boolean>
+  /**
+   * 会话第一次使用浏览器前是否征求用户同意.
+   *
+   * 语义是"申请": 浏览器平面同一时刻只服务一个会话, 所以每个会话第一次要用它时都走一次
+   * 审批, 由用户决定现在归谁. 关掉它才会退回"静默自动取得".
+   */
+  askOnAcquire: Volatile<boolean>
   /**
    * 插件加载时是否自动写入 native messaging 清单.
    *
@@ -68,7 +73,7 @@ export const Config = Schema.object({
   profileDir: Schema.string().volatile(),
   dataDir: Schema.string().volatile(),
   extraArgs: Schema.array(Schema.string()).default([]).volatile(),
-  confirmFirstLaunch: Schema.boolean().default(true).volatile(),
+  askOnAcquire: Schema.boolean().default(true).volatile(),
   installHostAutomatically: Schema.boolean().default(false).volatile(),
 })
 
@@ -84,6 +89,8 @@ export interface ResolvedPaths {
   extensionDir: string
   /** 宿主与 native host 之间的会合文件. */
   rendezvousFile: string
+  /** 截图的落地目录. */
+  screenshotsDir: string
 }
 
 /**
@@ -131,6 +138,9 @@ export function resolvePaths(config: Config): ResolvedPaths {
     hostDir: join(dataDir, 'native-host'),
     extensionDir: join(dataDir, 'extension'),
     rendezvousFile: join(dataDir, 'bridge.json'),
+    // 截图落在数据目录下而不是会话工作区: 它是插件自己的产物, 会话换掉之后仍然该留着,
+    // 用户要回头看某次截图时也有个固定位置可找.
+    screenshotsDir: join(dataDir, 'screenshots'),
   }
 }
 

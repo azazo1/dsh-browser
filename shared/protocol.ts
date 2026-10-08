@@ -81,6 +81,12 @@ export interface HelloPayload {
   version: string
   /** 扩展当前是否已绑定到一个标签页. */
   boundTabId: number | null
+  /**
+   * "Allow User Scripts" 开关是否已打开, 决定浏览器求值能不能用.
+   *
+   * 可选: 老版本扩展不会报这个字段, 缺失时按"未知"处理而不是"不支持".
+   */
+  userScripts?: boolean
 }
 
 /** 宿主发往扩展的调用帧. */

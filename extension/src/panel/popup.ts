@@ -15,6 +15,8 @@ interface StatusResponse {
   attempts: number
   boundTabId: number | null
   hostName: string
+  /** 浏览器求值所需的 "Allow User Scripts" 开关是否已打开. */
+  userScripts: boolean
 }
 
 /** 取一个元素, 找不到就抛错 (弹窗 DOM 是静态的, 缺元素属于开发错误). */
@@ -36,6 +38,7 @@ function render(status: StatusResponse): void {
   const headline = element('headline')
   const detail = element('detail')
   const binding = element('binding')
+  const capabilities = element('capabilities')
 
   if (status.linked) {
     dot.className = 'dot ok'
@@ -55,6 +58,11 @@ function render(status: StatusResponse): void {
   binding.textContent = status.boundTabId === null
     ? '尚未绑定标签页'
     : `已绑定标签页 #${status.boundTabId}`
+
+  // 求值能力取决于一个手动开关, 打开前工具会拒绝调用, 所以这里直接说明状态.
+  capabilities.textContent = status.userScripts
+    ? '浏览器求值: 可用'
+    : '浏览器求值: 未启用 (在扩展详情页打开 Allow User Scripts)'
 }
 
 /** 向 service worker 要一次状态. */
@@ -70,6 +78,7 @@ async function refresh(): Promise<void> {
       attempts: 0,
       boundTabId: null,
       hostName: 'unknown',
+      userScripts: false,
     })
   }
 }

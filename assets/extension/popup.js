@@ -10,6 +10,7 @@
     const headline = element("headline");
     const detail = element("detail");
     const binding = element("binding");
+    const capabilities = element("capabilities");
     if (status.linked) {
       dot.className = "dot ok";
       headline.textContent = "\u5DF2\u8FDE\u63A5\u5230 dsh";
@@ -24,6 +25,7 @@
       detail.textContent = status.lastError ?? "\u6B63\u5728\u5EFA\u7ACB\u8FDE\u63A5...";
     }
     binding.textContent = status.boundTabId === null ? "\u5C1A\u672A\u7ED1\u5B9A\u6807\u7B7E\u9875" : `\u5DF2\u7ED1\u5B9A\u6807\u7B7E\u9875 #${status.boundTabId}`;
+    capabilities.textContent = status.userScripts ? "\u6D4F\u89C8\u5668\u6C42\u503C: \u53EF\u7528" : "\u6D4F\u89C8\u5668\u6C42\u503C: \u672A\u542F\u7528 (\u5728\u6269\u5C55\u8BE6\u60C5\u9875\u6253\u5F00 Allow User Scripts)";
   }
   async function refresh() {
     try {
@@ -36,7 +38,8 @@
         lastError: `\u65E0\u6CD5\u8BE2\u95EE\u540E\u53F0: ${String(error)}`,
         attempts: 0,
         boundTabId: null,
-        hostName: "unknown"
+        hostName: "unknown",
+        userScripts: false
       });
     }
   }

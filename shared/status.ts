@@ -35,6 +35,13 @@ export interface StatusPayload {
   extensionVersion: string | null
   /** 扩展当前绑定的标签页 id. */
   boundTabId: number | null
+  /**
+   * 浏览器求值 (browser_evaluate) 是否可用.
+   *
+   * 取决于用户在扩展详情页手动打开的 "Allow User Scripts" 开关; null 表示扩展没连上,
+   * 状态未知而不是不支持.
+   */
+  userScriptsAvailable: boolean | null
   /** 桥层的最近一次异常. */
   bridgeError: string | null
   /** 本次运行使用的 Chrome 启动参数. */

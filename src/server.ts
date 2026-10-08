@@ -65,6 +65,7 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
     interpreter: host?.interpreter ?? '',
     bridgeConnected: status.bridgeConnected,
     extensionVersion: status.extensionVersion,
+    userScriptsAvailable: status.userScriptsAvailable,
     boundTabId: status.boundTabId,
     bridgeError: status.bridgeError,
     launchArgs: status.launchArgs,
