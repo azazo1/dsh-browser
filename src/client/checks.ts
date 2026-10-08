@@ -20,7 +20,7 @@
  *   - `idle`    **还看不出来** —— 不要用 `done` 表示这个.
  */
 
-import type { StatusPayload } from '../../shared/status.js'
+import { extensionLinkCounts, type StatusPayload } from '../../shared/status.js'
 import type { BrowserSettingsKey } from './strings.js'
 
 /** 一行检查项的状态. 取值与界面组件的 StateDot 一致. */
@@ -58,10 +58,7 @@ export function checks(status: StatusPayload): CheckRow[] {
     },
     {
       key: 'checkExtension',
-      // 未连上有两种可能: 扩展没装, 或者浏览器没开. 两者都要用户动手, 所以是 warning
-      // 而不是 error —— 配置本身没错.
-      state: status.bridgeConnected ? 'done' : 'warning',
-      detail: status.extensionVersion === null ? '扩展尚未连上' : `扩展版本 ${status.extensionVersion}`,
+      ...extensionRow(status),
     },
     {
       key: 'checkLaunch',
@@ -86,26 +83,87 @@ export function checks(status: StatusPayload): CheckRow[] {
     },
     {
       key: 'checkEvaluate',
-      // 未知就是未知: 扩展还没连上时无从判断这个开关开没开, 所以既不是 done (会造成上面那个
-      // 自相矛盾的绿色) 也不是 warning (还没有需要处理的东西). idle 才是诚实的表达.
-      state: status.userScriptsAvailable === null
-        ? 'idle'
-        : (status.userScriptsAvailable ? 'done' : 'warning'),
-      // 未启用也只是少了求值这一个工具, 其余照常可用, 所以是 warning 而非 error.
-      detail: status.userScriptsAvailable === null
-        ? '扩展未连上, 状态未知'
-        : (status.userScriptsAvailable
-          ? 'browser_evaluate 可用'
-          : '未启用; 在扩展详情页打开 Allow User Scripts 后 browser_evaluate 可用'),
+      ...evaluateRow(status),
     },
     {
       key: 'checkBinding',
-      // 还没有绑定标签页是**正常状态**, 不是问题: 打开页面之前本来就没有绑定. 所以既不该
-      // 显示成 warning (会让人以为哪里错了), 更不该显示成 done.
-      state: status.boundTabId === null ? 'idle' : 'done',
-      detail: status.boundTabId === null
-        ? '尚未绑定标签页 (在会话里调用 browser_tabs 后选择)'
-        : `id=${String(status.boundTabId)}`,
+      ...bindingRow(status),
     },
   ]
+}
+
+/**
+ * 独立 profile 开关已开, 但本插件还没拉起那份窗口.
+ *
+ * 没拉起之前, 桥上那条连接属于日常 Chrome, 不能拿来给独立 profile 报绿灯.
+ *
+ * @param status 宿主状态.
+ * @returns 还没拉起为 true.
+ */
+function standalonePending(status: StatusPayload): boolean {
+  return status.launchStandaloneChromeProfile && status.launchArgs === null
+}
+
+/**
+ * 扩展连接这一行.
+ *
+ * @param status 宿主状态.
+ * @returns 状态与说明.
+ */
+function extensionRow(status: StatusPayload): { state: CheckState, detail: string } {
+  if (standalonePending(status)) {
+    return {
+      state: 'idle',
+      detail: status.bridgeConnected
+        ? '当前连着的是日常 Chrome, 独立 profile 尚未启动 (不会复用)'
+        : '第一次使用时会启动独立 profile; 请在那个窗口加载扩展',
+    }
+  }
+  if (status.launchStandaloneChromeProfile && !status.bridgeConnected) {
+    return {
+      state: 'warning',
+      detail: '独立 profile 已启动但扩展未连上, 请在那个窗口加载扩展',
+    }
+  }
+  return {
+    state: extensionLinkCounts(status) ? 'done' : 'warning',
+    detail: status.extensionVersion === null ? '扩展尚未连上' : `扩展版本 ${status.extensionVersion}`,
+  }
+}
+
+/**
+ * 浏览器求值这一行.
+ *
+ * @param status 宿主状态.
+ * @returns 状态与说明.
+ */
+function evaluateRow(status: StatusPayload): { state: CheckState, detail: string } {
+  if (standalonePending(status)) {
+    return { state: 'idle', detail: '独立 profile 尚未启动, 状态未知' }
+  }
+  if (status.userScriptsAvailable === null) {
+    return { state: 'idle', detail: '扩展未连上, 状态未知' }
+  }
+  return {
+    state: status.userScriptsAvailable ? 'done' : 'warning',
+    detail: status.userScriptsAvailable
+      ? 'browser_evaluate 可用'
+      : '未启用; 在扩展详情页打开 Allow User Scripts 后 browser_evaluate 可用',
+  }
+}
+
+/**
+ * 绑定标签页这一行.
+ *
+ * @param status 宿主状态.
+ * @returns 状态与说明.
+ */
+function bindingRow(status: StatusPayload): { state: CheckState, detail: string } {
+  if (standalonePending(status)) {
+    return { state: 'idle', detail: '独立 profile 尚未启动' }
+  }
+  if (status.boundTabId === null) {
+    return { state: 'idle', detail: '尚未绑定标签页 (在会话里调用 browser_tabs 后选择)' }
+  }
+  return { state: 'done', detail: `id=${String(status.boundTabId)}` }
 }

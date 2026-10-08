@@ -17,6 +17,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { StatusPayload } from '../shared/status.js'
 import { grantFromUserClick } from './acquire.js'
 import type { BrowserRuntime } from './runtime.js'
+import { evaluateSetup, hostParts } from './setup.js'
 import { uninstallHost } from './native-host/install.js'
 
 /** 本插件 HTTP 接口的前缀. */
@@ -118,7 +119,14 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
     pairingError: status.pairingError,
     launchArgs: status.launchArgs,
     manualSteps: status.nextSteps,
-    ready: status.chrome !== null && status.bridgeConnected && status.pairingError === null,
+    // 跟 setup 同一条路: 独立 profile 开着时不要求此刻已经有扩展连着 (那可能是日常 Chrome).
+    ready: status.chrome !== null && evaluateSetup({
+      ...hostParts(status.host, runtime.paths),
+      pairingConfigured: status.pairingConfigured,
+      pairingError: status.pairingError,
+      bridgeConnected: status.bridgeConnected,
+      launchStandaloneChromeProfile: status.launchStandaloneChromeProfile,
+    }).ready,
   }
 }
 

@@ -211,6 +211,30 @@ export class BridgeServer {
     return { ...this.state }
   }
 
+  /**
+   * 主动断开当前扩展连接.
+   *
+   * 独立 profile 启动时用: 日常 Chrome 里已经连着的那条必须先让位, 否则后面的
+   * waitForBridge 会把旧连接当成"独立窗口已经连上".
+   *
+   * @param reason 记入日志的原因.
+   */
+  dropLive(reason: string): void {
+    const socket = this.live
+    if (socket === null) return
+    this.ctx.logger.info(`dsh-browser: 断开当前扩展连接 (${reason})`)
+    this.live = null
+    this.peerPairingToken = undefined
+    this.setState({
+      connected: false,
+      extensionVersion: null,
+      boundTabId: null,
+      userScriptsAvailable: null,
+    })
+    this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))
+    socket.close(1000, 'standalone-switch')
+  }
+
   /** 订阅连接状态变化; 返回取消订阅函数. */
   subscribe(listener: (state: BridgeConnectionState) => void): () => void {
     this.listeners.add(listener)
@@ -360,7 +384,10 @@ export class BridgeServer {
       this.handleFrame(frame, socket)
     })
     socket.on('close', () => {
-      if (this.live === socket) this.live = null
+      // 这条已经被别的连接取代时不要清状态: 否则新 hello 先到、旧 close 后到, 会把刚连上的独立
+      // profile 又标成未连接.
+      if (this.live !== socket) return
+      this.live = null
       this.peerPairingToken = undefined
       this.setState({ connected: false, extensionVersion: null, boundTabId: null, userScriptsAvailable: null })
       this.failAll(new BridgeCallError('internal', '扩展断开了连接, 在途调用已中断'))

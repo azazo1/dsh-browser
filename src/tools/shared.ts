@@ -9,6 +9,7 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { SnapshotResult, TabInfo } from '../../shared/protocol.js'
+import { extensionLinkCounts } from '../../shared/status.js'
 import { BrowserUnavailableError, describeBridgeError } from '../runtime.js'
 import type { BrowserResource, BrowserRuntime } from '../runtime.js'
 
@@ -125,7 +126,7 @@ export function formatStatus(
   // 启动方式要在"扩展连接"之前讲清: 用户最担心的是"会不会突然冒出一个 Chrome 窗口",
   // 而这完全由这个开关决定.
   lines.push(`浏览器启动方式: ${status.launchStandaloneChromeProfile
-    ? '允许 dsh 启动自带的独立 profile Chrome'
+    ? '启动独立 profile, 不复用日常 Chrome'
     : '不自行启动 Chrome, 只用你现有的浏览器 (launchStandaloneChromeProfile 未打开)'}`)
   // 配对状态放在扩展连接之前: 没配对时后面所有浏览器操作都会失败, 而原因就是这个, 所以
   // 用户应当先看到它.
@@ -133,7 +134,11 @@ export function formatStatus(
     ? `配对令牌: 已配置${status.pairingError === null ? '' : ' (但最近一次握手被拒)'}`
     : '配对令牌: 尚未配置 —— 请打开浏览器扩展的弹出面板复制配对令牌, 填到本插件的 pairingToken 配置项')
   if (status.pairingError !== null) lines.push(`配对失败原因: ${status.pairingError}`)
-  lines.push(`扩展连接: ${status.bridgeConnected ? '已连接' : '未连接'}${status.extensionVersion === null ? '' : ` (扩展版本 ${status.extensionVersion})`}`)
+  lines.push(`扩展连接: ${extensionLinkCounts(status)
+    ? `已连接${status.extensionVersion === null ? '' : ` (扩展版本 ${status.extensionVersion})`}`
+    : (status.launchStandaloneChromeProfile && status.launchArgs === null
+      ? '独立 profile 尚未启动 (日常 Chrome 里的连接不算)'
+      : '未连接')}`)
   lines.push(`绑定标签页: ${status.boundTabId === null ? '无' : `id=${String(status.boundTabId)}`}`)
   // 独占: 同一时刻只有一个会话能驱动这个浏览器. 这里要说清两件事 —— 现在归谁, 以及
   // "本会话能不能直接用", 因为后者决定了下一次调用会不会弹审批.

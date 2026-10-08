@@ -11,6 +11,7 @@ export type BrowserTabKey =
   | 'loading'
   | 'connected'
   | 'disconnected'
+  | 'standalonePending'
   | 'holderSelf'
   | 'holderNone'
   | 'holderOther'
@@ -33,6 +34,7 @@ export const zh: Record<BrowserTabKey, string> = {
   loading: '正在读取状态...',
   connected: '扩展已连接',
   disconnected: '扩展未连接',
+  standalonePending: '独立 profile 尚未启动, 日常 Chrome 里的连接不算',
   holderSelf: '本会话持有驱动权',
   holderNone: '当前无人持有驱动权',
   holderOther: '现在由另一个会话占用',
@@ -56,6 +58,7 @@ export const en: Record<BrowserTabKey, string> = {
   loading: 'Reading status...',
   connected: 'Extension connected',
   disconnected: 'Extension not connected',
+  standalonePending: 'Standalone profile not launched yet; a daily Chrome link does not count',
   holderSelf: 'This session holds the browser',
   holderNone: 'No session holds the browser',
   holderOther: 'Another session currently holds the browser',

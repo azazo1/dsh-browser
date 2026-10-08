@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { StatusPayload } from '../../../shared/status.js'
+import { extensionLinkCounts, type StatusPayload } from '../../../shared/status.js'
 import { acquireBrowser, fetchStatus, releaseBrowser } from '../api.js'
 import type { BrowserTabKey } from './strings.js'
 
@@ -99,6 +99,7 @@ export function BrowserTab(props: BrowserTabProps): ReactElement {
   const holderId = status?.holderId ?? null
   const holdsHere = holderId === sessionId
   const otherHolds = holderId !== null && holderId !== sessionId
+  const linked = status !== null && extensionLinkCounts(status)
   const canAcquire = status !== null && status.ready && !holdsHere && busy === null
   const canRelease = holdsHere && busy === null
 
@@ -129,12 +130,12 @@ export function BrowserTab(props: BrowserTabProps): ReactElement {
               </div>
             )}
             <div style={styles.row}>
-              <span style={styles.label}>{t(status.bridgeConnected ? 'connected' : 'disconnected')}</span>
-              <span style={styles.value}>{status.extensionVersion ?? ''}</span>
+              <span style={styles.label}>{t(linked ? 'connected' : 'disconnected')}</span>
+              <span style={styles.value}>{linked ? (status.extensionVersion ?? '') : (status.launchStandaloneChromeProfile && status.launchArgs === null ? t('standalonePending') : '')}</span>
             </div>
             <div style={styles.row}>
-              <span style={styles.label}>{t(status.boundTabId === null ? 'unbound' : 'bound')}</span>
-              <span style={styles.value}>{status.boundTabId === null ? '' : String(status.boundTabId)}</span>
+              <span style={styles.label}>{t(linked && status.boundTabId !== null ? 'bound' : 'unbound')}</span>
+              <span style={styles.value}>{linked && status.boundTabId !== null ? String(status.boundTabId) : ''}</span>
             </div>
             <div style={styles.row}>
               <span style={styles.label}>{t(status.ready ? 'ready' : 'notReady')}</span>

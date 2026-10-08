@@ -20,9 +20,8 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
   const open = defineTool({
     name: 'browser_open',
     description:
-      '确保浏览器平面可用. 扩展已经连上时直接复用它所在的浏览器, 不启动任何新窗口; '
-      + '只有在扩展尚未连接时才由本插件以独立持久 profile 启动 Chrome (不使用 Chrome 调试协议, '
-      + 'profile 持久, 登录态与历史跨会话保留). '
+      '确保浏览器平面可用. 默认不自行打开 Chrome, 只用扩展已经连上的那个浏览器; '
+      + '打开 launchStandaloneChromeProfile 后始终启动独立 profile, 即使日常 Chrome 里扩展已经连着也不复用. '
       + '浏览器同一时刻只服务一个会话, 所以每个会话第一次用它时都会弹一次审批, 由用户决定现在归谁; '
       + 'justification 参数会展示给用户, 调用前请想好一句能让人看懂的话, 不要写"用户要求打开浏览器"这类空话. '
       + '交出驱动权用 browser_release.',

@@ -392,12 +392,25 @@ export class BrowserRuntime {
     if (chrome === null) nextSteps.push('未找到 Google Chrome, 请在配置里填写 chromePath.')
     if (hostError !== null) nextSteps.push(`连接组件状态无法读取: ${hostError}`)
     else if (host !== null) nextSteps.push(...host.manualSteps)
+    const standalone = this.config.launchStandaloneChromeProfile.get()
+    const launchedStandalone = standalone && this.launchArgs !== null
     if (bridgeState.pairingError !== null) {
       // 配对失败是当前挡住使用的原因; 再写"去装扩展"会把用户带偏.
       nextSteps.length = 0
       nextSteps.push(`配对没通过: ${bridgeState.pairingError}`)
+    } else if (standalone && !launchedStandalone) {
+      // 日常 Chrome 连着也不算: 打开这个开关就是选择另一份 profile.
+      nextSteps.push(
+        '独立 profile 尚未启动. 第一次使用时会另开窗口, 不会复用日常 Chrome; '
+        + '请在那个窗口打开 chrome://extensions, 加载扩展产物.',
+      )
     } else if (bridgeState.connected) nextSteps.length = 0
-    else if (host?.manifestReady === true) {
+    else if (standalone) {
+      nextSteps.push(
+        '独立 profile 已启动但扩展还没连上来: 请在那个窗口打开 chrome://extensions, '
+        + '加载扩展产物. 日常 Chrome 里已经连上的不算.',
+      )
+    } else if (host?.manifestReady === true) {
       nextSteps.push('连接组件已就绪但扩展还没连上来: 请确认扩展已在 chrome://extensions 中加载并启用.')
     }
     if (this.lastLaunchError !== null) nextSteps.push(`上次启动 Chrome 失败: ${this.lastLaunchError}`)
@@ -537,13 +550,15 @@ export class BrowserRuntime {
   private async launchOnce(signal: AbortSignal): Promise<void> {
     const paths = this.paths
 
-    // 判断之前稍等一下: 扩展可能正在握手 (socket 连上了, hello 还在路上). 立刻下结论的话,
-    // 那一瞬间会被判成"没连上"而拒绝, 其实再等几十毫秒就能复用. 这个等待只在未连接时发生,
-    // 所以正常路径没有额外延迟.
-    const bridgeConnected = await this.waitForBridge(signal, HANDSHAKE_GRACE_MS)
+    const standalone = this.config.launchStandaloneChromeProfile.get()
+    // 复用路径才需要握手宽限: 独立 profile 不看现有连接, 等它只是把日常 Chrome 的 hello
+    // 当成"已经连上".
+    const bridgeConnected = standalone
+      ? this.bridge.connectionState.connected
+      : await this.waitForBridge(signal, HANDSHAKE_GRACE_MS)
     const decision = launchDecision({
       bridgeConnected,
-      launchStandaloneChromeProfile: this.config.launchStandaloneChromeProfile.get(),
+      launchStandaloneChromeProfile: standalone,
     })
     if (decision.kind === 'reuse') {
       this.ctx.logger.info('dsh-browser: 扩展已连接, 复用用户现有的浏览器, 不启动独立 profile')
@@ -574,7 +589,9 @@ export class BrowserRuntime {
         : `dsh-browser: 已启动 Chrome (pid ${String(result.pid)})`,
     )
 
-    if (this.bridge.connectionState.connected) return
+    // 启动前日常 Chrome 可能已经连着. 那条连接必须让位, 否则下面会立刻当成"已经连上"
+    // 而开始操作用户自己的窗口.
+    if (bridgeConnected) this.bridge.dropLive('独立 profile 不复用已有连接')
 
     // 扩展尚未加载时这里必然等不到; 等不到不抛错, 让调用方拿到可执行的提示而不是
     // 一个超时异常 —— 首次安装的用户正好卡在这一步.
@@ -582,10 +599,10 @@ export class BrowserRuntime {
     if (!connected) {
       const status = await this.status()
       const hint = status.host?.extensionReady === true
-        ? `如果扩展还没装: 在 chrome://extensions 打开开发者模式, 点"加载已解压的扩展程序", 选中 ${paths.extensionDir}. `
+        ? `请在独立 profile 那个窗口打开 chrome://extensions, 点"加载已解压的扩展程序", 选中 ${paths.extensionDir}. 日常 Chrome 里已经装过的不算. `
         : '连接组件似乎还没装好, 请到本插件的配置页点「安装连接组件」. '
       throw new BrowserUnavailableError(
-        `Chrome 已经启动, 但扩展没有在 ${String(CONNECT_WAIT_MS / 1_000)} 秒内连上来. `
+        `独立 profile 的 Chrome 已经启动, 但扩展没有在 ${String(CONNECT_WAIT_MS / 1_000)} 秒内连上来. `
         + hint
         + '装好后扩展会自动连接, 无需重启 dsh.',
       )

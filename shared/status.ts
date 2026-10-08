@@ -60,6 +60,23 @@ export interface StatusPayload {
   ready: boolean
 }
 
+/**
+ * 当前桥连接是否就是本插件选中的那个浏览器.
+ *
+ * 独立 profile 开着但还没拉起时, 桥上那条属于日常 Chrome, 不能当成已经就绪.
+ *
+ * @param status 与判定有关的字段.
+ * @returns 选中的那个浏览器已经连上为 true.
+ */
+export function extensionLinkCounts(status: {
+  launchStandaloneChromeProfile: boolean
+  bridgeConnected: boolean
+  launchArgs: string[] | null
+}): boolean {
+  if (!status.launchStandaloneChromeProfile) return status.bridgeConnected
+  return status.launchArgs !== null && status.bridgeConnected
+}
+
 /** 接口失败时返回的形状. */
 export interface ErrorPayload {
   error: string

@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { checks } from '../src/client/checks.ts'
 import type { CheckState } from '../src/client/checks.ts'
-import type { StatusPayload } from '../shared/status.ts'
+import { extensionLinkCounts, type StatusPayload } from '../shared/status.ts'
 
 /**
  * 一份"全部正常"的状态.
@@ -123,6 +123,59 @@ describe('配置页检查清单', () => {
     const status = withPatch({ bridgeConnected: false, launchStandaloneChromeProfile: true })
     expect(stateOf(status, 'checkLaunch')).toBe('done')
     expect(stateOf(withPatch({ bridgeConnected: false, launchStandaloneChromeProfile: false }), 'checkLaunch')).toBe('warning')
+  })
+
+  it('独立 profile 尚未启动时, 日常 Chrome 的连接不算就绪', () => {
+    expect(extensionLinkCounts({
+      launchStandaloneChromeProfile: true,
+      bridgeConnected: true,
+      launchArgs: null,
+    })).toBe(false)
+    expect(extensionLinkCounts({
+      launchStandaloneChromeProfile: false,
+      bridgeConnected: true,
+      launchArgs: null,
+    })).toBe(true)
+    // 打开这个开关就是选择另一份环境; 桥上那条连接属于日常窗口, 拿它报绿灯会让人以为已经在用独立 profile.
+    const pending = withPatch({
+      launchStandaloneChromeProfile: true,
+      launchArgs: null,
+      bridgeConnected: true,
+      userScriptsAvailable: true,
+      boundTabId: 42,
+    })
+    expect(stateOf(pending, 'checkExtension')).toBe('idle')
+    expect(stateOf(pending, 'checkEvaluate')).toBe('idle')
+    expect(stateOf(pending, 'checkBinding')).toBe('idle')
+
+    const disconnected = withPatch({
+      launchStandaloneChromeProfile: true,
+      launchArgs: null,
+      bridgeConnected: false,
+      extensionVersion: null,
+      userScriptsAvailable: null,
+      boundTabId: null,
+    })
+    expect(stateOf(disconnected, 'checkExtension')).toBe('idle')
+  })
+
+  it('独立 profile 启动后, 才用那条连接判定扩展是否就绪', () => {
+    const launched = withPatch({
+      launchStandaloneChromeProfile: true,
+      launchArgs: ['--user-data-dir=/data/dsh-browser/profile'],
+      bridgeConnected: true,
+    })
+    expect(stateOf(launched, 'checkExtension')).toBe('done')
+    expect(stateOf(launched, 'checkEvaluate')).toBe('done')
+
+    const waiting = withPatch({
+      launchStandaloneChromeProfile: true,
+      launchArgs: ['--user-data-dir=/data/dsh-browser/profile'],
+      bridgeConnected: false,
+      extensionVersion: null,
+      userScriptsAvailable: null,
+    })
+    expect(stateOf(waiting, 'checkExtension')).toBe('warning')
   })
 
   it('未连上桥时, 依赖握手结果的那一行必须给未知而不是绿色', () => {
