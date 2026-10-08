@@ -87,7 +87,8 @@ export const zh: Record<BrowserSettingsKey, string> = {
   stale: '检测到已装的连接组件与当前配置不一致 (可能换过数据目录或扩展密钥). 点"安装连接组件"即可重装.',
   tokenLabel: '配对令牌',
   tokenHint: '点浏览器工具栏上的 dsh Browser 图标, 复制弹出面板里的配对令牌, 粘贴到这里再点保存. '
-    + '没配对之前浏览器操作会被拒绝. 这个值明文显示, 因为它需要和扩展面板里那串核对.',
+    + '保存后插件会把它转移到本机数据目录并清空这个字段, 配置文件里不会留令牌. '
+    + '这个值明文显示, 因为它需要和扩展面板里那串核对.',
   tokenPlaceholder: '粘贴扩展面板里显示的令牌',
   invalidToken: '这个值不被接受',
   launchLabel: '启动独立 profile 的 Chrome',
@@ -136,7 +137,8 @@ export const en: Record<BrowserSettingsKey, string> = {
   stale: 'The installed connection pieces do not match the current configuration (the data directory or extension key changed). Click "Install connection pieces" to reinstall.',
   tokenLabel: 'Pairing token',
   tokenHint: 'Open the dsh Browser popup from the toolbar, copy its pairing token, paste it here and save. '
-    + 'Browser operations are refused until this matches. The value is shown in clear because it must be compared with the popup.',
+    + 'After saving, the plugin moves it into the local data directory and clears this field; the token never stays in the config file. '
+    + 'The value is shown in clear because it must be compared with the popup.',
   tokenPlaceholder: 'Paste the token shown in the extension popup',
   invalidToken: 'This value is not accepted',
   launchLabel: 'Launch a standalone Chrome profile',

@@ -231,11 +231,14 @@ export class BrowserRuntime {
    * @param ctx 插件上下文.
    * @param config 插件配置.
    * @param bridge 桥服务.
+   * @param storedPairingToken 已配对令牌的读取口; 生产路径由 apply 传入令牌文件的缓存.
+   *   缺省读配置字段, 仅供测试兜底 —— 生产里那个字段保存后总是空串.
    */
   constructor(
     private readonly ctx: Context,
     private readonly config: Config,
     private readonly bridge: BridgeServer,
+    private readonly storedPairingToken: () => string = () => this.config.pairingToken.get(),
   ) {
     this.resources = new SessionResources<BrowserResource>(ctx, {
       label: 'dsh-browser',
@@ -434,7 +437,7 @@ export class BrowserRuntime {
       extensionVersion: bridgeState.extensionVersion,
       userScriptsAvailable: bridgeState.userScriptsAvailable,
       launchStandaloneChromeProfile: this.config.launchStandaloneChromeProfile.get(),
-      pairingConfigured: this.config.pairingToken.get() !== '',
+      pairingConfigured: this.storedPairingToken() !== '',
       pairingError: bridgeState.pairingError,
       boundTabId: bridgeState.boundTabId,
       bridgeError: bridgeState.lastError,

@@ -21,6 +21,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-browser-use'
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-config-editor'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -30,6 +31,7 @@ import { Config, resolvePaths } from './config.js'
 import type { Config as ConfigShape } from './config.js'
 import { requestBrowserAccess } from './acquire.js'
 import { installHost } from './native-host/install.js'
+import { PairingTokenStore } from './pairing-store.js'
 import { BrowserRuntime } from './runtime.js'
 import { registerApi } from './server.js'
 import { advancedTools } from './tools/advanced.js'
@@ -92,17 +94,60 @@ const GUIDANCE = `本会话的 browser_* 工具驱动一个由 dsh 启动的持�
  * @param input 解析后的配置.
  */
 export function apply(ctx: Context, input: ConfigShape): void {
+  // 已配对令牌的本机存放. 配置字段只是入口: 读到非空值就转移进来, 见 drainPairingToken.
+  const pairing = new PairingTokenStore(() => resolvePaths(input).dataDir)
+
+  /**
+   * 把配置里的令牌转移到本机文件并清空配置字段.
+   *
+   * 令牌按设备各一份, 而配置文件常被用户纳入 git 在多台设备间同步, 所以它只能落在
+   * gitignored 的数据目录里. 转移顺序是"先落文件, 再清配置": 就算清空这一步失败,
+   * 配对也已经可用, 只是令牌暂时还留在配置里.
+   */
+  const drainPairingToken = async (): Promise<void> => {
+    const token = input.pairingToken.get()
+    if (token === '') return
+    pairing.store(token)
+    ctx.logger.info('dsh-browser: 配对令牌已转移到本机数据目录, 配置文件里不再保留')
+    const entry = ctx.fiber?.entry
+    const editor = ctx.get('configEditor')
+    if (entry === undefined || editor === undefined) {
+      ctx.logger.warn('dsh-browser: 无法清空配置里的配对令牌 (取不到 configEditor 服务), 它会暂时留在配置文件里')
+      return
+    }
+    await editor.edit(entry, (current) => ({ ...current, pairingToken: '' }))
+  }
+  const drainPairingTokenSafely = (): void => {
+    void drainPairingToken().catch((error: unknown) => {
+      ctx.logger.warn(
+        `dsh-browser: 转移配置里的配对令牌失败: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    })
+  }
+  // 启动时清一次: 兼顾老用户 —— 升级前令牌已经存进配置文件的, 第一次加载就被搬走.
+  drainPairingTokenSafely()
+  // 运行中再粘贴令牌走 volatile 热更新, 不会重启插件, 所以在这里补一次清空;
+  // 顺带把令牌文件的缓存刷新一遍, 用户手动改文件也能跟上.
+  ctx.on('loader/volatile-update', () => {
+    try {
+      pairing.reload()
+    } catch (error: unknown) {
+      ctx.logger.warn(`dsh-browser: 读取配对令牌文件失败, 沿用上一次的值: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    drainPairingTokenSafely()
+  })
+
   // 桥的握手令牌每次启动重新生成; native host 从会合文件里读它.
   const bridge = new BridgeServer(
     ctx,
     newToken(),
-    () => input.pairingToken.get(),
+    () => pairing.current(),
     () => input.launchStandaloneChromeProfile.get() ? resolvePaths(input).profileDir : null,
   )
   BridgeServer.mount(ctx, bridge)
   ctx.effect(() => () => { bridge.dispose() }, 'dsh-browser: bridge')
 
-  const runtime = new BrowserRuntime(ctx, input, bridge)
+  const runtime = new BrowserRuntime(ctx, input, bridge, () => pairing.current())
 
   // 可选地占住 browser-use 的独占提供方槽位: 一个组合里只允许一套浏览器平面, 免得
   // 两套同时抢同一个浏览器. 这个槽位只登记名字, 工具由本插件自己注册.
