@@ -150,7 +150,10 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
  */
 export function registerApi(ctx: Context, runtime: BrowserRuntime, pairing: PairingTokenStore, pairingDrain: PairingDrain): void {
   const webServer = ctx.webServer
-  webServer.register({
+  // 路由必须在 ctx.effect 里注册: webserver 的注册表是宿主级单例, 路由只在 disposer
+  // 被调用时才移除. 插件重载 (改配置, 插件管理器更新) 会销毁 ctx 并重新 apply, 裸注册
+  // 的那一份会留在表里, 第二次写入同一个前缀就抛 duplicate prefix route 而整体加载失败.
+  ctx.effect(() => webServer.register({
     kind: 'prefix',
     path: API_PREFIX,
     handler: async (req: IncomingMessage, res: ServerResponse) => {
@@ -241,5 +244,5 @@ export function registerApi(ctx: Context, runtime: BrowserRuntime, pairing: Pair
         sendJson(res, 500, { error: message })
       }
     },
-  })
+  }), 'dsh-browser: api route')
 }
