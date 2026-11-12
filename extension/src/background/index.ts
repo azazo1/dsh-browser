@@ -33,7 +33,7 @@ import {
 } from './page.js'
 import { captureTab } from './screenshot.js'
 import { evaluateInTab } from './evaluate.js'
-import { activateTab, closeTab, getTab, listTabs, openTab } from './tabs.js'
+import { bindTab, closeTab, getTab, listTabs, openTab } from './tabs.js'
 import {
   consoleCaptureStatus,
   installConsoleListeners,
@@ -98,7 +98,7 @@ async function dispatch(method: string, args: Record<string, unknown>): Promise<
       return listTabs()
     case 'tabs.activate': {
       const tabId = Number(args.tabId)
-      const tab = await activateTab(tabId)
+      const tab = await bindTab(tabId)
       boundTabId = tabId
       notifyBound(tabId)
       return tab

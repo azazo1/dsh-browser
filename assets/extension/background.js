@@ -763,14 +763,12 @@ async function getTab(tabId) {
   }
 }
 async function openTab(url) {
-  const tab = await chrome.tabs.create({ url, active: true });
+  const tab = await chrome.tabs.create({ url, active: false });
   if (typeof tab.id !== "number") throw new Error("\u65B0\u5EFA\u6807\u7B7E\u9875\u6CA1\u6709\u8FD4\u56DE id");
   await waitForComplete(tab.id, 2e4);
   return getTab(tab.id);
 }
-async function activateTab(tabId) {
-  const tab = await chrome.tabs.update(tabId, { active: true });
-  if (tab?.windowId !== void 0) await chrome.windows.update(tab.windowId, { focused: true });
+async function bindTab(tabId) {
   return getTab(tabId);
 }
 async function closeTab(tabId) {
@@ -995,13 +993,12 @@ async function readViewport(tabId) {
 async function captureTab(tabId, format) {
   const tab = await getTab(tabId);
   const windowId = tab.windowId;
-  await chrome.tabs.update(tabId, { active: true });
-  if (typeof windowId === "number") {
-    await chrome.windows.update(windowId, { focused: true }).catch(() => void 0);
+  if (!tab.active) {
+    throw new PageError(
+      "screenshot-needs-foreground",
+      `\u6807\u7B7E\u9875 ${tabId} \u5F53\u524D\u4E0D\u662F\u6D3B\u52A8\u6807\u7B7E\u9875, \u62FF\u4E0D\u5230\u5B83\u7684\u53EF\u89C1\u753B\u9762. \u672C\u63D2\u4EF6\u4E0D\u4F1A\u4E3A\u4E86\u622A\u56FE\u628A\u6D4F\u89C8\u5668\u5207\u5230\u524D\u53F0 (\u90A3\u4F1A\u6253\u65AD user \u6B63\u5728\u505A\u7684\u4E8B), \u8BF7\u5728 Chrome \u91CC\u624B\u52A8\u5207\u5230\u8FD9\u4E2A\u6807\u7B7E\u9875, \u6216\u8005\u6539\u7528 browser_snapshot / browser_evaluate \u8BFB\u53D6\u5185\u5BB9.`
+    );
   }
-  await new Promise((resolve) => {
-    setTimeout(resolve, 150);
-  });
   const viewport = await readViewport(tabId);
   let dataUrl;
   try {
@@ -1432,7 +1429,7 @@ async function dispatch(method, args) {
       return listTabs();
     case "tabs.activate": {
       const tabId = Number(args.tabId);
-      const tab = await activateTab(tabId);
+      const tab = await bindTab(tabId);
       boundTabId = tabId;
       notifyBound(tabId);
       return tab;

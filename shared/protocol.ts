@@ -183,7 +183,7 @@ export type ErrorCode =
   | 'stale-target'
   /** 编号在最近一次快照里不存在. */
   | 'unknown-element'
-  /** 目标标签页不在前台, 需要先激活. */
+  /** 目标标签页不是活动标签, 而该操作需要可见画面 (例如截图); 本插件不会为此切换前台. */
   | 'tab-not-active'
   /** 扩展尚未绑定标签页. */
   | 'no-binding'

@@ -140,7 +140,8 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
   const selectTab = defineTool({
     name: 'browser_select_tab',
     description:
-      '把一个标签页设为操作目标并切到前台. 之后所有页面工具都作用于它. '
+      '把一个标签页设为操作目标, 之后所有页面工具都作用于它. '
+      + '绑定不会切换标签页, 也不会把浏览器抢到前台, user 当前的可见状态保持不变. '
       + '这是唯一建立目标的途径: 插件刻意不做"跟随用户当前标签"这种隐式行为, 免得用户在别的标签页上看东西时被意外改动.',
     parameters: {
       tabId: {

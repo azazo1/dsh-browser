@@ -35,7 +35,8 @@ export function screenshotTool(deps: ToolDeps & { screenshotsDir: () => string }
       + '只截视口: 截图不能超过一屏, 需要看下面内容时先 browser_scroll 再截. '
       + '本工具不把图片直接交给模型, 所以拿到路径后: 若你能看图, 用 read_image 读这个路径; '
       + '若不能, 把路径告诉 user 由他查看. '
-      + '截图前会把这个标签页激活到前台, 这是 Chrome 的截图接口的要求 (它截的是当前可见的那一帧).',
+      + '本工具不会为了截图切换标签页或把浏览器抢到前台: Chrome 的截图接口只能截活动标签页, '
+      + '所以目标标签页必须本来就已经是活动标签, 否则会报错 (这时改用 browser_snapshot 读取内容).',
     parameters: {
       format: { type: 'string', description: '图片格式, "png" (默认) 或 "jpeg" (更小)' },
     },

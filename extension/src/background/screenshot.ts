@@ -6,9 +6,9 @@
  * 器"无关的负担. 视口截图已经覆盖绝大多数用途 (看当前状态, 确认某个元素长什么样), 需要
  * 整页时由调用方滚动后再截一次即可.
  *
- * 另一个限制来自 Chrome 本身: `captureVisibleTab` 截的是"某个窗口里当前可见的那一帧",
- * 所以必须先把这个标签页激活并把窗口提到前台, 否则截到的是别的东西. 这不是可以绕过的
- * 实现细节, 而是这个 API 的语义.
+ * 另一个限制来自 Chrome 本身: `captureVisibleTab` 截的是"窗口里当前可见的那一帧", 后台
+ * 标签页根本不渲染. 所以这里要求目标标签页本来就已经是活动标签, 否则直接报错 ——
+ * 本插件不会为了截图去切换标签页或聚焦窗口, 那属于会打断用户的动作.
  */
 
 import { PageError } from './page.js'
@@ -57,6 +57,13 @@ async function readViewport(tabId: number): Promise<Viewport> {
 /**
  * 截取绑定标签页的当前视口.
  *
+ * 这里**不再**把标签页切到前台或聚焦窗口. 代价是: `captureVisibleTab` 只截活动标签页
+ * 已渲染的帧, 后台标签页拿不到画面, 所以只在这个标签页本来就已经是活动标签时才截,
+ * 否则直接报错让调用方自己决定要不要请用户让出前台.
+ *
+ * 宁可报错也不切前台: 切一下就会把用户正在看的东西顶掉, 而截图本身是只读动作, 为它
+ * 抢走用户的注意力不划算.
+ *
  * @param tabId 目标标签页.
  * @param format 编码格式.
  * @returns 截图的字节与尺寸.
@@ -65,16 +72,14 @@ export async function captureTab(tabId: number, format: ScreenshotFormat): Promi
   const tab = await getTab(tabId)
   const windowId = tab.windowId
 
-  // 必须先把目标标签页放到前台: captureVisibleTab 截的是窗口里可见的那一帧, 后台标签页
-  // 截出来会是别的页面的内容, 或者直接失败.
-  await chrome.tabs.update(tabId, { active: true })
-  if (typeof windowId === 'number') {
-    // 窗口本身也要提到前台, 被其它窗口盖住时同样拿不到有效画面.
-    await chrome.windows.update(windowId, { focused: true }).catch(() => undefined)
+  if (!tab.active) {
+    throw new PageError(
+      'screenshot-needs-foreground',
+      `标签页 ${tabId} 当前不是活动标签页, 拿不到它的可见画面. `
+      + '本插件不会为了截图把浏览器切到前台 (那会打断 user 正在做的事), '
+      + '请在 Chrome 里手动切到这个标签页, 或者改用 browser_snapshot / browser_evaluate 读取内容.',
+    )
   }
-
-  // 激活之后等一拍再截, 否则可能截到切换前的旧帧.
-  await new Promise<void>((resolve) => { setTimeout(resolve, 150) })
 
   const viewport = await readViewport(tabId)
 

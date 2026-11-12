@@ -43,25 +43,32 @@ export async function getTab(tabId: number): Promise<TabInfo> {
 }
 
 /**
- * 在指定窗口里新建标签页并等它完成首次加载.
+ * 在后台新建标签页并等它完成首次加载.
+ *
+ * `active: false` 是有意的: 新建标签页只为了给模型一个落点, 不该把用户的注意力从
+ * 正在做的事情上拽走. Chrome 会在后台完成加载, 后续的注入脚本操作同样可用.
+ *
  * @param url 目标地址.
  * @returns 新标签页描述.
  */
 export async function openTab(url: string): Promise<TabInfo> {
-  const tab = await chrome.tabs.create({ url, active: true })
+  const tab = await chrome.tabs.create({ url, active: false })
   if (typeof tab.id !== 'number') throw new Error('新建标签页没有返回 id')
   await waitForComplete(tab.id, 20_000)
   return getTab(tab.id)
 }
 
 /**
- * 把指定标签页切到前台.
+ * 校验标签页存在并把它作为绑定目标, 全程不改变用户的可见状态.
+ *
+ * 这里刻意**不**调用 `tabs.update({active:true})` 或 `windows.update({focused:true})`:
+ * 绑定只是一个"后续页面操作作用于谁"的约定, 把 Chrome 抢到前台会打断用户正在做的事.
+ * 后台标签页同样可以注入脚本, 点击与填入走的都是合成事件, 不需要窗口在前台.
+ *
  * @param tabId 标签页 id.
  * @returns 标签页描述.
  */
-export async function activateTab(tabId: number): Promise<TabInfo> {
-  const tab = await chrome.tabs.update(tabId, { active: true })
-  if (tab?.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true })
+export async function bindTab(tabId: number): Promise<TabInfo> {
   return getTab(tabId)
 }
 
