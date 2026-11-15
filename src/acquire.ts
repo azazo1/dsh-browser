@@ -2,8 +2,12 @@
  * 浏览器驱动权的申请.
  *
  * 浏览器平面是独占的: 分发给扩展的持久 profile 只有一个, 扩展内部也只维持一个"当前绑定
- * 标签页". 两个会话同时驱动会互相踩, 所以插件把它做成一份**可申请的驱动权** —— 每个会话
- * 第一次要用时提出申请, 由**用户**决定现在归谁.
+ * 标签页". 两个会话同时驱动会互相踩, 所以插件把它做成一份**可申请的驱动权**.
+ *
+ * 申请只发生在两个显式工具上: `browser_open` (可顺便打开页面) 与 `browser_acquire`
+ * (只取驱动权). 其它工具在未取得驱动权时直接报错并提示先调它们, **不弹审批** —— 否则任何
+ * 一次读页面都会突然冒出授权窗口. 只读工具 (`browser_status`, `browser_tabs`,
+ * `browser_release`) 完全不需要驱动权.
  *
  * 单独一个模块, 是因为这段判定既要被插件装配用, 也要能被直接测试: 决定"第二个会话怎么才
  * 能用上"的逻辑如果只在测试里另抄一份, 那测的就是副本而不是真行为.
@@ -19,14 +23,26 @@ import type { Config } from './config.js'
 import type { SetupStatus } from './setup.js'
 
 /**
+ * 会向用户发起审批的两个入口.
+ *
+ * 只有它们能"取得驱动权"; 其它工具未持有时直接报错, 不弹审批. 关掉 askOnAcquire 时它们
+ * 也退化为静默取得.
+ */
+export const ACQUIRE_TOOLS: ReadonlySet<string> = new Set([
+  'browser_open',
+  'browser_acquire',
+])
+
+/**
  * 需要驱动权的工具.
  *
- * `browser_status` 刻意不在其中: 它只读本机状态, 不碰浏览器, 所以不需要申请 —— 这也让
- * 第二个会话在申请之前就能看清"现在归谁", 而不是先撞一次拒绝.
+ * 只读工具刻意不在其中: `browser_status` 不碰浏览器; `browser_tabs` 只列标签页;
+ * `browser_release` 只是放弃权利. 它们不需要申请 —— 这也让第二个会话在申请之前就能看清
+ * "现在归谁", 而不是先撞一次拒绝.
  */
 export const BROWSER_TOOLS: ReadonlySet<string> = new Set([
   'browser_open',
-  'browser_tabs',
+  'browser_acquire',
   'browser_select_tab',
   'browser_close_tab',
   'browser_snapshot',
@@ -45,13 +61,13 @@ export const BROWSER_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * 判断这次调用是否需要先向用户申请.
+ * 判断这次调用是否需要向用户申请.
  *
- * 需要申请的情形只有一个: 这个工具要占用浏览器, 而当前会话还没被授予. 授权是"会话级"
- * 而不是"调用级", 因为每次调用都问一遍会把用户烦死, 而只问一次就足以表达"现在归谁".
+ * 只有两个"获取驱动权"的入口会问: `browser_open` 与 `browser_acquire`. 其它工具在没有
+ * 驱动权时不是"申请", 而是直接报错让调用方先去取权 —— 否则任何一次读页面都会突然弹出
+ * 授权窗口.
  *
- * 关掉 askOnAcquire 时这一项一律返回 false —— 那不是"什么都不用做", "先问后给"里的"给"
- * 仍然必须发生, 见 requestBrowserAccess.
+ * 关掉 askOnAcquire 时一律不问: 直接静默取得 (见 requestBrowserAccess).
  *
  * @param input 判定输入.
  * @returns 是否需要征求同意.
@@ -63,7 +79,7 @@ export function needsBrowserConsent(input: {
 }): boolean {
   if (!input.enabled) return false
   if (input.holdsBrowser) return false
-  return BROWSER_TOOLS.has(input.toolName)
+  return ACQUIRE_TOOLS.has(input.toolName)
 }
 
 /**
@@ -154,27 +170,33 @@ export async function requestBrowserAccess(input: AcquireInput): Promise<Acquire
   const holds = input.runtime.holdsBrowser(input.agent)
   const browserTool = BROWSER_TOOLS.has(input.toolName)
 
+  // 只读工具 (status / tabs / release) 与无关工具: 不需要驱动权, 直接放行.
+  if (!browserTool) return { kind: 'allow' }
+  if (holds) return { kind: 'allow' }
+
+  const enabled = input.config.askOnAcquire.get()
+  if (!enabled) {
+    // 静默取得: 不问用户, 但驱动权必须真的交过去, 否则工具执行时会被拒.
+    if (!input.setup.ready) return { kind: 'deny', reason: input.setup.guide }
+    input.runtime.grant(input.agent)
+    return { kind: 'allow' }
+  }
+
+  // 没有驱动权, 而这次不是"获取驱动权"的入口: 直接拒绝, 不弹审批.
+  if (!ACQUIRE_TOOLS.has(input.toolName)) {
+    return {
+      kind: 'deny',
+      reason: '本会话还没有浏览器驱动权. 请先调用 browser_acquire (只取得驱动权) '
+        + '或 browser_open (可顺便打开页面, 必要时把浏览器启动起来), 之后再调用本工具.',
+    }
+  }
+
   // 先确认"有一条能真正用上的路", 再决定要不要问用户.
   //
   // 次序很重要: 没配好就问, 用户同意之后仍然什么都做不了, 而且他完全不知道缺什么 —— 那个
   // 弹窗纯粹是一次打扰. 所以这种情况直接返回配置说明, 请模型讲给用户听.
-  // 这一步也先于"要不要问": 自动放行同样不该把驱动权交给一个现在根本用不了的浏览器.
-  if (browserTool && !holds && !input.setup.ready) {
+  if (!input.setup.ready) {
     return { kind: 'deny', reason: input.setup.guide }
-  }
-
-  if (!needsBrowserConsent({
-    toolName: input.toolName,
-    holdsBrowser: holds,
-    enabled: input.config.askOnAcquire.get(),
-  })) {
-    // "不需要问"有三种来源, 只有第三种要真的做事:
-    //   - 不是浏览器工具: 什么都不做, 更不能顺手给它驱动权;
-    //   - 本会话已经持有: 授权是会话级的, 不用重复给;
-    //   - 关掉了 askOnAcquire: 这就是"自动放行", 必须真的把驱动权交过去. 只放行不给权的话,
-    //     工具会在执行阶段以"还没有取得浏览器"被拒, 开关等于没生效.
-    if (browserTool && !holds) input.runtime.grant(input.agent)
-    return { kind: 'allow' }
   }
 
   if (input.approval === undefined) {

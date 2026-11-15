@@ -6,8 +6,9 @@
  *
  *   - 桥一次调用都没有发生 (桥是唯一能驱动扩展的通道);
  *   - 也没有走到"启动 Chrome"那一步 —— 由错误信息证明, 因为那个守卫就在启动流程的最前面;
- *   - 唯一的例外是 browser_status (只读本机状态, 不碰浏览器) 与 browser_release (只放弃,
- *     不取得), 它们可以正常返回.
+ *   - 唯一的例外是三个只读工具: browser_status (只读本机状态), browser_tabs (只列标签页)
+ *     与 browser_release (只放弃, 不取得). 它们不需要驱动权; 其中 tabs 在断连时也只会报错,
+ *     不会启动浏览器.
  *
  * 第二个方向同样重要: 即使某个资源被泄漏出去, 拿着它也不能驱动浏览器. 所以另有一条用例
  * 先取得资源, 再撤销授权, 然后直接调那个资源.
@@ -148,6 +149,7 @@ function makeExec(agent: Agent): never {
 /** 每个工具的调用参数; 覆盖全部 browser_* 工具. */
 const CALL_ARGS: Record<string, unknown> = {
   browser_open: { justification: '验证未授权行为' },
+  browser_acquire: {},
   browser_status: {},
   browser_tabs: {},
   browser_select_tab: { tabId: 1 },
@@ -175,12 +177,12 @@ describe('未获授权时能否影响浏览器', () => {
     expect(names).toEqual(Object.keys(CALL_ARGS).sort())
   })
 
-  it('全部工具都在申请清单内, 只有 browser_status 与 browser_release 例外', () => {
+  it('全部工具都在申请清单内, 只有三个只读工具例外', () => {
     // 清单漏了某个工具 -> 它会静默自动取得; 这条从两个方向夹住这个错误.
-    expect(BROWSER_TOOLS.has('browser_status')).toBe(false)
-    expect(BROWSER_TOOLS.has('browser_release')).toBe(false)
+    const readOnly = ['browser_status', 'browser_tabs', 'browser_release']
+    for (const name of readOnly) expect(BROWSER_TOOLS.has(name)).toBe(false)
     const expected = Object.keys(CALL_ARGS)
-      .filter(name => name !== 'browser_status' && name !== 'browser_release')
+      .filter(name => !readOnly.includes(name))
       .sort()
     expect([...BROWSER_TOOLS].sort()).toEqual(expected)
   })
@@ -198,7 +200,7 @@ describe('未获授权时能否影响浏览器', () => {
     expect(calls).toEqual([])
   })
 
-  it('未授权时, 会占用浏览器的工具都被拒, 而且理由指向"再发起一次调用去申请"', async () => {
+  it('未授权时, 需要驱动权的工具都被拒, 且没有碰桥', async () => {
     for (const name of BROWSER_TOOLS) {
       const { runtime, calls } = makeRuntime()
       const outsider = register(makeAgent('session-outsider'))
@@ -224,6 +226,21 @@ describe('未获授权时能否影响浏览器', () => {
     // 它能成功返回 (第二个会话据此先看清"现在归谁"), 但依然不产生任何桥调用.
     const value = await tool.execute({}, makeExec(outsider)) as { text: string }
     expect(value.text).toContain('驱动权')
+    expect(calls).toEqual([])
+  })
+
+  it('browser_tabs 不需要驱动权, 但断连时只报错, 不启动浏览器', async () => {
+    const { runtime, calls } = makeRuntime()
+    const outsider = register(makeAgent('session-outsider'))
+    const tool = allTools(runtime).find(candidate => candidate.name === 'browser_tabs')!
+
+    const failure = await tool.execute({}, makeExec(outsider)).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(failure).not.toBeNull()
+    // 只读工具也绝不自行启动浏览器: 打开窗口只能由 browser_open / browser_acquire 触发.
+    expect(String(failure)).toContain('浏览器还没有连上')
     expect(calls).toEqual([])
   })
 

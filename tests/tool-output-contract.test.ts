@@ -121,6 +121,8 @@ function fakeRuntime(): BrowserRuntime {
     holdsBrowser: () => true,
     release: () => true,
     run: async (_agent, _signal, operation) => operation(resource),
+    // 只读工具 (browser_tabs) 走这条路: 不要驱动权, 也不启动浏览器.
+    runReadOnly: async (_signal, operation) => operation(resource),
     status: async () => ({
       chrome: { path: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', source: 'standard-path' },
       chromeError: null,
@@ -147,6 +149,7 @@ let uploadFile = ''
 /** 每个工具的调用参数; 覆盖全部 browser_* 工具. */
 const CALL_ARGS: Record<string, unknown> = {
   browser_open: { justification: '验证浏览器平面' },
+  browser_acquire: {},
   browser_status: {},
   browser_tabs: {},
   browser_select_tab: { tabId: 1391393307 },
@@ -211,6 +214,7 @@ describe('每个 browser_* 工具的产物都是 harness 认可的 lossless JSON
   it('覆盖了全部已注册的工具 (新增工具时要一并纳入本测试)', () => {
     // 期望的工具名清单写死在这里: 新增工具而忘了给它加用例时, 这条会失败.
     expect([...tools.keys()].sort()).toEqual([
+      'browser_acquire',
       'browser_click',
       'browser_close_tab',
       'browser_console',

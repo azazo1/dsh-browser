@@ -77,9 +77,10 @@ export type { ConfigShape }
  */
 const GUIDANCE = `本会话的 browser_* 工具驱动一个由 dsh 启动的持久 Chrome, 通过浏览器扩展控制页面, 不使用 Chrome 调试协议. 页面以带编号的文本清单呈现, 模型按编号操作元素.
 
-工作顺序: 先用 browser_status 确认可用, browser_tabs 看清有哪些标签, browser_select_tab 绑定一个, 然后 browser_snapshot 取结构, 再用 browser_click / browser_fill 按编号操作.
+工作顺序: 先用 browser_status 确认可用, 再用 browser_acquire (只取驱动权) 或 browser_open (可顺便打开页面) 取得驱动权, 再用 browser_tabs 看清有哪些标签, browser_select_tab 绑定一个, 然后 browser_snapshot 取结构, 再用 browser_click / browser_fill 按编号操作.
 
 必须注意:
+- 驱动权是会话级的: 只有 browser_open 与 browser_acquire 会向用户发起审批. 其它浏览器工具在没有驱动权时直接报错, 这时应当调用 browser_acquire, 不要反复重试, 也不要以为换个工具就能绕过.
 - 页面操作只作用于被绑定的那个标签页; 不先绑定就会失败.
 - browser_snapshot 返回的快照编号是操作凭据, 页面一旦变化它就失效, 需要重新取快照.
 - 一次操作成功只说明事件发出去了, 不说明结果符合预期; 关键步骤之后要重新快照确认.
@@ -88,7 +89,7 @@ const GUIDANCE = `本会话的 browser_* 工具驱动一个由 dsh 启动的持�
 - Chrome 内部页面 (chrome:// 等) 和扩展商店页面无法被操作, 这是浏览器的限制.
 - 插件需要先由用户配好: 装连接组件, 在 chrome://extensions 里加载扩展, 再把扩展面板里的配对令牌填进配置页的配对令牌输入框. 没配好时工具会直接把配置步骤给你, 请把它讲给用户听并等他做完, 不要反复重试, 也不要以为换个工具能绕过.
 - 下一步以 browser_status 的「待办」为准, 它写的是此刻真正要做的事:
-  - 待办说"调用 browser_open"时照做; browser_status 只读, 它不会启动浏览器, 反复查状态不会让扩展连上.
+  - 待办说"调用 browser_open 或 browser_acquire"时照做; browser_status 只读, 它不会启动浏览器, 反复查状态不会让扩展连上.
   - 待办要求填配对令牌 / 安装连接组件 / 在 chrome://extensions 里加载扩展时, 才把这些步骤讲给用户并等他做完.
 - 默认不会自行打开 Chrome (launchStandaloneChromeProfile 与 autoLaunchChrome 都未打开), 那时扩展没连上才需要用户打开他自己的 Chrome. 打开 autoLaunchChrome 后, 扩展没连上时会先自动启动用户日常那个 Chrome; 打开 launchStandaloneChromeProfile 后会启动独立 profile, 不再复用用户日常那个 Chrome.`
 

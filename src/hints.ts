@@ -78,14 +78,14 @@ export function browserNextSteps(input: NextStepsInput): string[] {
   if (input.launchStandaloneChromeProfile) {
     return withLastError([input.launched
       ? '独立 profile 的 Chrome 已启动, 但扩展还没连上来: 请在那个窗口打开 chrome://extensions 加载扩展产物; 日常 Chrome 里已经连上的不算.'
-      : '独立 profile 的 Chrome 还没启动. 调用 browser_open 会另开一个窗口并等扩展连上; 如果那个窗口里还没加载过扩展, 需要在 chrome://extensions 里加载一次.'])
+      : '独立 profile 的 Chrome 还没启动. 调用 browser_open 或 browser_acquire 会另开一个窗口并等扩展连上; 如果那个窗口里还没加载过扩展, 需要在 chrome://extensions 里加载一次.'])
   }
   if (input.autoLaunchChrome) {
     // 直接说现状与下一步. 不要写"这不代表需要改配置"这类对照句 —— 那是知道内情的人才有的
     // 视角, 第一次看到状态的模型只会觉得突兀, 而且它还得先推断"谁在说需要改配置".
     // 也不断言"浏览器还没启动": Chrome 可能开着, 只是扩展被禁用.
     return withLastError([
-      '扩展还没连上来. 调用 browser_open 会启动浏览器 (已经在运行则直接复用) 并等扩展连上.',
+      '扩展还没连上来. 调用 browser_open 或 browser_acquire 会启动浏览器 (已经在运行则直接复用) 并等扩展连上.',
       '如果之后仍然未连接, 到 chrome://extensions 确认 dsh Browser 处于启用状态.',
     ])
   }

@@ -9,7 +9,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { DEFAULT_CALL_TIMEOUT_MS } from '../../shared/protocol.js'
 import { extensionLinkCounts } from '../../shared/status.js'
-import { formatStatus, formatTabs, requireAgent, runBrowser } from './shared.js'
+import { formatStatus, formatTabs, requireAgent, runBrowser, runBrowserReadOnly } from './shared.js'
 import type { ToolDeps } from './shared.js'
 
 /**
@@ -21,10 +21,11 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
   const open = defineTool({
     name: 'browser_open',
     description:
-      '确保浏览器平面可用. 默认不自行打开 Chrome, 只用扩展已经连上的那个浏览器; '
+      '确保浏览器平面可用 并取得驱动权. 默认不自行打开 Chrome, 只用扩展已经连上的那个浏览器; '
       + '打开 launchStandaloneChromeProfile 后始终启动独立 profile, 即使日常 Chrome 里扩展已经连着也不复用. '
       + '打开 autoLaunchChrome 后, 扩展还没连上时会先自动启动你的 Chrome (日常 profile) 并等它连上来. '
-      + '浏览器同一时刻只服务一个会话, 所以每个会话第一次用它时都会弹一次审批 (除非关掉 askOnAcquire), 由用户决定现在归谁; '
+      + '浏览器同一时刻只服务一个会话; 本工具与 browser_acquire 是唯一会向 user 发起审批的入口 (除非关掉 askOnAcquire), '
+      + '其它工具在没有驱动权时直接报错而不弹审批. '
       + 'justification 参数会展示给用户, 调用前请想好一句能让人看懂的话, 不要写"用户要求打开浏览器"这类空话. '
       + '交出驱动权用 browser_release.',
     parameters: {
@@ -78,13 +79,44 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     },
   })
 
+  const acquire = defineTool({
+    name: 'browser_acquire',
+    description:
+      '取得浏览器驱动权, 但不打开页面、不改变当前页. 浏览器没启动或断连时, 会按配置把它启动起来并等扩展连上. '
+      + '其它浏览器工具在没有驱动权时无法使用, 也不会弹审批; 本工具与 browser_open 是唯一会向 user 发起审批的入口. '
+      + '拿到驱动权之后, 用 browser_tabs 看标签页, 再用 browser_select_tab 选一个.',
+    parameters: {},
+    presentCall: () => ({ card: 'generic', title: '获取浏览器驱动权' }),
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          acquired: { type: 'boolean', required: true, description: '是否已取得驱动权 (失败时会直接报错)' },
+          ready: { type: 'boolean', required: true, description: '扩展是否已连上, 可以开始操作' },
+          text: { type: 'string', required: true, description: '状态摘要' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: value.text }],
+    },
+    execute: async (_args, exec) => {
+      // requireOpen: 这是显式的"取驱动权"入口, 允许把浏览器启动起来 (但不打开页面).
+      const status = await runBrowser(deps, exec, async () => deps.runtime.status(), { requireOpen: true })
+      return {
+        acquired: true,
+        ready: extensionLinkCounts(status),
+        text: ['已取得浏览器驱动权.', '', formatStatus(status)].join('\n'),
+      }
+    },
+  })
+
   const status = defineTool({
     name: 'browser_status',
     description:
       '查询浏览器平面的完整状态: Chrome 二进制位置, 持久 profile 目录, 连接组件是否装好, '
       + '扩展是否连上, 当前绑定了哪个标签页, 以及为了让状态可用还需要做什么. '
       + '连接出问题, 或不确定能不能操作时先用它, 而不是盲目重试页面工具. '
-      + '本工具只读, 不会启动浏览器; 要启动它请调用 browser_open. '
+      + '本工具只读, 不需要驱动权, 不会启动浏览器; 要启动它请调用 browser_open 或 browser_acquire. '
       + '「待办」会说明现在缺的是浏览器没启动, 还是真的缺组件.',
     parameters: {},
     presentCall: () => ({ card: 'generic', title: '查询浏览器状态' }),
@@ -115,6 +147,7 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     name: 'browser_tabs',
     description:
       '列出浏览器里的所有标签页 (id / 标题 / 地址 / 哪个在前台 / 哪个已被绑定). '
+      + '本工具只读: 不需要驱动权, 也不会弹审批或打开浏览器. '
       + '页面操作只作用于被绑定的那个标签页, 所以操作前先用它看清有哪些标签, 再用 browser_select_tab 选一个.',
     parameters: {},
     presentCall: () => ({ card: 'generic', title: '列出标签页' }),
@@ -130,7 +163,7 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
       },
       render: (_args, value) => [{ type: 'text', text: value.text }],
     },
-    execute: async (_args, exec) => runBrowser(deps, exec, async (resource) => {
+    execute: async (_args, exec) => runBrowserReadOnly(deps, exec, async (resource) => {
       const list = await resource.call('tabs.list', {}, exec.signal)
       const bound = deps.runtime.boundTabId
       return {
@@ -250,5 +283,5 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     },
   })
 
-  return [open, status, tabs, selectTab, closeTab, release]
+  return [open, acquire, status, tabs, selectTab, closeTab, release]
 }

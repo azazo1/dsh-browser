@@ -137,16 +137,29 @@ function makeHarness(approval: unknown, askOnAcquire = true): {
 }
 
 describe('浏览器驱动权的申请与让出', () => {
-  it('会话第一次要占用浏览器时, 会走一次审批', async () => {
+  it('获取驱动权的两个入口会走一次审批', async () => {
     const approval = makeApproval('allowed-once')
     const { request } = makeHarness(approval.service)
     const { agent } = makeAgent('session-a')
 
-    const result = await request(agent, 'browser_snapshot')
+    const result = await request(agent, 'browser_acquire')
     expect(result.kind).toBe('allow')
     // 关键: 静默自动取得是不允许的, 必须真的问过用户.
     expect(approval.asks).toHaveLength(1)
-    expect(approval.asks[0]?.toolName).toBe('browser_snapshot')
+    expect(approval.asks[0]?.toolName).toBe('browser_acquire')
+  })
+
+  it('未持有驱动权时, 其它工具直接拒绝且不弹审批', async () => {
+    const approval = makeApproval('allowed-once')
+    const { request, runtime } = makeHarness(approval.service)
+    const { agent } = makeAgent('session-a')
+
+    const result = await request(agent, 'browser_snapshot')
+    expect(result.kind).toBe('deny')
+    // 只读以外的工具不该为了"取权"弹窗, 那会让人在每次读页面时被打断.
+    expect(approval.asks).toHaveLength(0)
+    expect(result.reason).toContain('browser_acquire')
+    expect(runtime.holdsBrowser(agent)).toBe(false)
   })
 
   it('用户同意后该会话才拿到驱动权', async () => {
@@ -155,7 +168,7 @@ describe('浏览器驱动权的申请与让出', () => {
     const { agent } = makeAgent('session-a')
 
     expect(runtime.holdsBrowser(agent)).toBe(false)
-    await request(agent, 'browser_text')
+    await request(agent, 'browser_open')
     expect(runtime.holdsBrowser(agent)).toBe(true)
     expect(runtime.grantedId).toBe('session-a')
   })
@@ -165,7 +178,7 @@ describe('浏览器驱动权的申请与让出', () => {
     const { request, runtime } = makeHarness(approval.service)
     const { agent } = makeAgent('session-a')
 
-    const result = await request(agent, 'browser_click')
+    const result = await request(agent, 'browser_acquire')
     expect(result.kind).toBe('deny')
     expect(runtime.holdsBrowser(agent)).toBe(false)
     expect(runtime.grantedId).toBeNull()
@@ -190,10 +203,10 @@ describe('浏览器驱动权的申请与让出', () => {
     const a = makeAgent('session-a')
     const b = makeAgent('session-b')
 
-    await request(a.agent, 'browser_snapshot')
+    await request(a.agent, 'browser_acquire')
     expect(runtime.grantedId).toBe('session-a')
 
-    const result = await request(b.agent, 'browser_snapshot')
+    const result = await request(b.agent, 'browser_acquire')
     expect(result.kind).toBe('allow')
     expect(runtime.grantedId).toBe('session-b')
     expect(runtime.holdsBrowser(a.agent)).toBe(false)
@@ -226,7 +239,7 @@ describe('浏览器驱动权的申请与让出', () => {
     // 不是持有者时再释放是空操作, 不该被当成"释放成功".
     expect(runtime.release(a.agent)).toBe(false)
 
-    await request(b.agent, 'browser_snapshot')
+    await request(b.agent, 'browser_acquire')
     expect(runtime.grantedId).toBe('session-b')
   })
 
@@ -235,7 +248,7 @@ describe('浏览器驱动权的申请与让出', () => {
     const { agent } = makeAgent('session-a')
 
     // 无人可以同意, 所以不能悄悄取得 —— 那正是要避免的行为.
-    const result = await request(agent, 'browser_snapshot')
+    const result = await request(agent, 'browser_acquire')
     expect(result.kind).toBe('deny')
     expect(runtime.holdsBrowser(agent)).toBe(false)
   })
@@ -295,8 +308,9 @@ describe('浏览器驱动权的申请与让出', () => {
     // 新增工具时忘了同步而误报.
     expect(BROWSER_TOOLS.size).toBeGreaterThan(0)
     for (const name of BROWSER_TOOLS) expect(name.startsWith('browser_')).toBe(true)
-    // 这两个刻意不申请: status 只读本机状态, release 只是放弃.
+    // 这三个刻意不申请: status 只读本机状态, tabs 只列标签页, release 只是放弃.
     expect(BROWSER_TOOLS.has('browser_status')).toBe(false)
+    expect(BROWSER_TOOLS.has('browser_tabs')).toBe(false)
     expect(BROWSER_TOOLS.has('browser_release')).toBe(false)
   })
 
@@ -342,13 +356,18 @@ describe('浏览器驱动权的申请与让出', () => {
   })
 
   it('判定与理由生成的边界', () => {
-    expect(needsBrowserConsent({ toolName: 'browser_click', holdsBrowser: false, enabled: true })).toBe(true)
+    // 只有两个取权入口会弹审批.
+    expect(needsBrowserConsent({ toolName: 'browser_acquire', holdsBrowser: false, enabled: true })).toBe(true)
+    expect(needsBrowserConsent({ toolName: 'browser_open', holdsBrowser: false, enabled: true })).toBe(true)
+    // 页面操作工具不会为了取权弹窗 (未持有时直接报错).
+    expect(needsBrowserConsent({ toolName: 'browser_click', holdsBrowser: false, enabled: true })).toBe(false)
     // 已经持有就不再问.
-    expect(needsBrowserConsent({ toolName: 'browser_click', holdsBrowser: true, enabled: true })).toBe(false)
+    expect(needsBrowserConsent({ toolName: 'browser_open', holdsBrowser: true, enabled: true })).toBe(false)
     // 关掉开关就不问.
-    expect(needsBrowserConsent({ toolName: 'browser_click', holdsBrowser: false, enabled: false })).toBe(false)
-    // 不碰浏览器的工具不问.
+    expect(needsBrowserConsent({ toolName: 'browser_open', holdsBrowser: false, enabled: false })).toBe(false)
+    // 只读工具不问.
     expect(needsBrowserConsent({ toolName: 'browser_status', holdsBrowser: false, enabled: true })).toBe(false)
+    expect(needsBrowserConsent({ toolName: 'browser_tabs', holdsBrowser: false, enabled: true })).toBe(false)
 
     // 有持有者时理由要点出是谁, 没有时不要扯到转交.
     expect(acquireReason('browser_click', {}, 'session-a')).toContain('session-a')

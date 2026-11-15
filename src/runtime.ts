@@ -372,11 +372,37 @@ export class BrowserRuntime {
     // 读标签页都可能把 Chrome 拉到前台, 打断用户正在做的事.
     if (options.requireOpen !== true && !this.bridge.connectionState.connected) {
       throw new BrowserUnavailableError(
-        '浏览器还没有连上 (可能没启动, 或窗口都关掉了). 调用 browser_open 会打开它; '
-        + '只有 browser_open 会打开或前置浏览器窗口, 其它工具都不会.',
+        '浏览器还没有连上 (可能没启动, 或窗口都关掉了). 调用 browser_open 或 browser_acquire 会打开它; '
+        + '只有这两个工具会打开或前置浏览器窗口, 其它工具都不会.',
       )
     }
     return this.resources.run(agent, signal, operation)
+  }
+
+  /**
+   * 只读操作: 不需要驱动权, 直接经由桥读取浏览器状态.
+   *
+   * 只读工具 (`browser_tabs`) 不改变浏览器状态, 也不占用驱动权, 所以既不该弹审批, 也不该
+   * 被"别的会话正持有"挡住. 但连接是硬前提: 没连上时直接报错, 不在这里启动浏览器.
+   *
+   * @param signal 取消信号.
+   * @param operation 操作体.
+   * @returns 操作结果.
+   */
+  async runReadOnly<R>(signal: AbortSignal, operation: (resource: BrowserResource) => Promise<R>): Promise<R> {
+    if (!this.bridge.connectionState.connected) {
+      throw new BrowserUnavailableError(
+        '浏览器还没有连上 (可能没启动, 或窗口都关掉了). 调用 browser_open 或 browser_acquire 会把它启动起来; '
+        + '只读工具自身不会打开或前置浏览器窗口.',
+      )
+    }
+    const resource: BrowserResource = {
+      call: async (method, args, callSignal, options) => this.bridge.call(method, args, {
+        signal: callSignal,
+        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      }),
+    }
+    return operation(resource)
   }
 
   /**
@@ -627,7 +653,7 @@ export class BrowserRuntime {
       recover: async () => {
         if (!await this.waitForBridge(signal, RECONNECT_WAIT_MS)) {
           throw new BrowserUnavailableError(
-            '扩展连接断开了, 而且没有在几秒内重连. 若浏览器已经关闭, 请调用 browser_open 重新打开.',
+            '扩展连接断开了, 而且没有在几秒内重连. 若浏览器已经关闭, 请调用 browser_open 或 browser_acquire 重新打开.',
           )
         }
       },
