@@ -37,15 +37,15 @@ describe('待办文案', () => {
     expect(browserNextSteps({ ...BASE, linked: true })).toEqual([])
   })
 
-  it('允许自动启动时, 指向 browser_open, 而不是去加载扩展', () => {
+  it('允许自动启动时, 直接说明现状, 并指向 browser_open', () => {
     const steps = browserNextSteps({ ...BASE, autoLaunchChrome: true })
     const text = steps.join(' ')
-    // 这条是本次修复的核心: 浏览器可能只是没启动, 让用户去改配置是白折腾.
+    // 从"此刻的状态"出发陈述, 不写"这不代表需要改配置"这类对照句.
+    expect(text).toContain('扩展还没连上来')
     expect(text).toContain('调用 browser_open')
-    expect(text).toContain('不代表需要改配置')
+    expect(text).toContain('等扩展连上')
+    // 组件齐全时不该出现安装扩展的步骤.
     expect(text).not.toContain('加载已解压的扩展程序')
-    // 必须点名 browser_open: browser_status 只读, 再查不会启动浏览器, 容易原地打转.
-    expect(text).toContain('browser_status 只读')
   })
 
   it('不允许自动启动时才让用户打开自己的浏览器', () => {

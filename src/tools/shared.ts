@@ -142,7 +142,7 @@ export function formatStatus(
     : (status.launchStandaloneChromeProfile && status.launchArgs === null
       ? '独立 profile 尚未启动 (日常 Chrome 里的连接不算)'
       : (status.autoLaunchChrome
-        ? '未连接 (调用 browser_open 这类工具时会自动启动 Chrome, 不必先让用户改配置)'
+        ? '未连接 (调用 browser_open 会自动启动 Chrome)'
         : '未连接'))}`)
   const linked = extensionLinkCounts(status)
   if (status.launchStandaloneChromeProfile) {

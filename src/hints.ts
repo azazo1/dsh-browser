@@ -4,8 +4,10 @@
  * 这段文本是模型行动的唯一依据: browser_status 之后它会照着办, 而不是再去猜. 所以两件事
  * 必须在这里说清:
  *
- *   - 扩展没连上**不等于**配置缺失. 浏览器没启动时, 待办应当是"直接再调用一次工具",
- *     而不是"去 chrome://extensions 加载扩展" —— 后者会让人白折腾一遍, 而扩展其实装得好好的.
+ *   - 浏览器还没启动, 与配置缺失是两件事. 待办要指向正确的那一件: 前者让模型调用工具,
+ *     后者才让用户动手.
+ *   - 文案直接从"此刻的状态"出发, 例如"浏览器还没启动. 调用 browser_open 会启动它", 不写
+ *     "这不代表需要改配置"这类对照句 —— 那是知道前情的人才有的视角.
  *   - 只有真正挡住链路的东西 (找不到 Chrome, 组件没装, 配对失败) 才排在最前面, 并且只排它们.
  *
  * 抽成纯函数是为了能直接测: 这段文案出错时, 表现是"模型让用户去做无用的事", 从代码上
@@ -75,19 +77,20 @@ export function browserNextSteps(input: NextStepsInput): string[] {
   // 到这里: Chrome 在, 组件齐, 但扩展还没连上.
   if (input.launchStandaloneChromeProfile) {
     return withLastError([input.launched
-      ? '独立 profile 的 Chrome 已经启动, 但扩展没连上来: 请在那个窗口打开 chrome://extensions 加载扩展产物; 日常 Chrome 里已经连上的不算.'
-      : '独立 profile 的 Chrome 还没启动: 调用 browser_open 即可, 它会另开一个窗口. 若那个窗口里还没加载过扩展, 请在 chrome://extensions 里加载一次.'])
+      ? '独立 profile 的 Chrome 已启动, 但扩展还没连上来: 请在那个窗口打开 chrome://extensions 加载扩展产物; 日常 Chrome 里已经连上的不算.'
+      : '独立 profile 的 Chrome 还没启动. 调用 browser_open 会另开一个窗口并等扩展连上; 如果那个窗口里还没加载过扩展, 需要在 chrome://extensions 里加载一次.'])
   }
   if (input.autoLaunchChrome) {
-    // 这条是关键: 未连接时不要先去改配置, 再调用一次就够了. 必须点名 browser_open, 因为
-    // browser_status 是只读的, 再查多少次都不会启动浏览器 —— 那会变成原地打转.
+    // 直接说现状与下一步. 不要写"这不代表需要改配置"这类对照句 —— 那是知道内情的人才有的
+    // 视角, 第一次看到状态的模型只会觉得突兀, 而且它还得先推断"谁在说需要改配置".
+    // 也不断言"浏览器还没启动": Chrome 可能开着, 只是扩展被禁用.
     return withLastError([
-      '扩展还没连上, 但这不代表需要改配置: 调用 browser_open 即可 (browser_status 只读, 再查也不会启动浏览器), 插件会自动启动你日常那个 Chrome, 让里面的扩展连上来.',
-      '若自动启动之后仍然连不上, 再到 chrome://extensions 确认 dsh Browser 处于启用状态.',
+      '扩展还没连上来. 调用 browser_open 会启动浏览器 (已经在运行则直接复用) 并等扩展连上.',
+      '如果之后仍然未连接, 到 chrome://extensions 确认 dsh Browser 处于启用状态.',
     ])
   }
   return withLastError([
-    '扩展还没连上: 请打开装了该扩展的那个 Chrome 并保持运行, 扩展会自动连上.',
+    '扩展还没连上来. 请打开装了该扩展的那个 Chrome, 扩展会自动连上.',
     '如果浏览器已经开着, 到 chrome://extensions 确认 dsh Browser 处于启用状态.',
   ])
 }
