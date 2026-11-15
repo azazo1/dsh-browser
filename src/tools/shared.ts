@@ -44,10 +44,11 @@ export async function runBrowser<T>(
   deps: ToolDeps,
   exec: ToolRunContext,
   operation: (resource: BrowserResource) => Promise<T>,
+  options?: { requireOpen?: boolean },
 ): Promise<T> {
   const agent = requireAgent(exec)
   try {
-    return await deps.runtime.run(agent, exec.signal, operation)
+    return await deps.runtime.run(agent, exec.signal, operation, options ?? {})
   } catch (error) {
     if (error instanceof BrowserUnavailableError) throw error
     throw new Error(describeBridgeError(error), { cause: error })

@@ -330,10 +330,23 @@ export class BrowserRuntime {
    * @param operation 操作体.
    * @returns 操作结果.
    */
-  async run<R>(agent: Agent, signal: AbortSignal, operation: (resource: BrowserResource) => Promise<R>): Promise<R> {
+  async run<R>(
+    agent: Agent,
+    signal: AbortSignal,
+    operation: (resource: BrowserResource) => Promise<R>,
+    options: { requireOpen?: boolean } = {},
+  ): Promise<R> {
     // 只有被授予的会话能驱动浏览器. 授予不会在这里自动发生 —— 它必须由审批钩子完成,
     // 否则就成了"静默取得", 而用户要的恰恰是"每次换手都让用户决定".
     if (this.granted !== agent) throw this.notGrantedError()
+    // 只有 browser_open 允许"把浏览器打开". 其它工具断连时只报错, 不碰窗口 —— 否则任何一次
+    // 读标签页都可能把 Chrome 拉到前台, 打断用户正在做的事.
+    if (options.requireOpen !== true && !this.bridge.connectionState.connected) {
+      throw new BrowserUnavailableError(
+        '浏览器还没有连上 (可能没启动, 或窗口都关掉了). 调用 browser_open 会打开它; '
+        + '只有 browser_open 会打开或前置浏览器窗口, 其它工具都不会.',
+      )
+    }
     return this.resources.run(agent, signal, operation)
   }
 
@@ -580,7 +593,15 @@ export class BrowserRuntime {
       // 转走之后还活着, 那时它必须立刻失效, 而不是继续替旧会话驱动浏览器.
       assertGranted: () => { if (this.granted !== agent) throw this.notGrantedError() },
       // 连接在资源就绪之后断掉时, 重新确认一次: 需要启动浏览器就启动, 需要等重连就等.
-      recover: async () => { await this.ensureBrowser(signal) },
+      // 连接在发送前断掉: 只等它自己回来, 刻意不调用 ensureBrowser —— 否则任何工具都可能
+      // 顺手打开或前置浏览器窗口. 需要打开浏览器时, 调用方应当去调 browser_open.
+      recover: async () => {
+        if (!await this.waitForBridge(signal, RECONNECT_WAIT_MS)) {
+          throw new BrowserUnavailableError(
+            '扩展连接断开了, 而且没有在几秒内重连. 若浏览器已经关闭, 请调用 browser_open 重新打开.',
+          )
+        }
+      },
       onClose: () => {
         this.ctx.logger.info(`dsh-browser: 会话 ${agentLabel} 释放浏览器驱动权 (Chrome 保持运行)`)
       },

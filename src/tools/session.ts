@@ -58,6 +58,7 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
     },
     execute: async (args, exec) => {
       // 先拿资源 (这会完成组件安装与 Chrome 启动, 并在扩展未连上时给出可执行的提示).
+      // requireOpen: 只有本工具允许"把浏览器打开" —— 其它工具断连时只报错, 不碰窗口.
       const status = await runBrowser(deps, exec, async (resource) => {
         if (args.url !== undefined && args.url !== '') {
           await resource.call('tabs.open', { url: args.url }, exec.signal)
@@ -66,7 +67,7 @@ export function sessionTools(deps: ToolDeps): ToolDefinition[] {
           await resource.call('tabs.list', {}, exec.signal, { timeoutMs: DEFAULT_CALL_TIMEOUT_MS })
         }
         return deps.runtime.status()
-      })
+      }, { requireOpen: true })
       const lines = ['Chrome 已就绪, 扩展通道通畅.', '', formatStatus(status)]
       return {
         ready: extensionLinkCounts(status),
