@@ -46,6 +46,16 @@ const DEFAULT_LAUNCH_COOLDOWN_MS = 60_000;
 const RECONNECT_WAIT_MS = 5_000;
 
 /**
+ * 启动浏览器之后, 连接要连续存在这么久才算就绪.
+ *
+ * Chrome 刚启动时扩展的 service worker 可能连上又断 (启动过程中被重启, host 随之退出再
+ * 重连). 只等 connected 变 true 就发请求, 正好会撞上断开的那一下, 得到一个"扩展没连着"
+ * 的错误, 而一秒后一切又正常. 实测就是这样: open -a 成功, 后续调用也能用, 只有第一次
+ * browser_open 失败.
+ */
+const CONNECT_SETTLE_MS = 1_000;
+
+/**
  * 判断"该用哪个浏览器"之前, 给正在进行的握手留的宽限.
  *
  * 配对校验通过之后才算 connected, 所以 socket 刚连上、hello 还在路上的那一瞬间状态是"未连接".
@@ -154,6 +164,25 @@ export function launchDecision(input: {
       + '如果打算让 dsh 用它自己那份独立 profile 的 Chrome, 请打开 launchStandaloneChromeProfile, '
       + '注意那份 profile 需要用户单独加载一次扩展, 否则同样连不上.',
   }
+}
+
+/**
+ * 等一小段时间, 取消时提前结束.
+ *
+ * @param ms 毫秒.
+ * @param signal 取消信号.
+ * @returns 时间到或取消时 resolve.
+ */
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = (): void => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, ms)
+    signal.addEventListener('abort', finish, { once: true })
+  })
 }
 
 /** 浏览器没有按预期就绪时抛出. */
@@ -719,7 +748,7 @@ export class BrowserRuntime {
 
     // 扩展尚未加载时这里必然等不到; 等不到不抛错, 让调用方拿到可执行的提示而不是
     // 一个超时异常 —— 首次安装的用户正好卡在这一步.
-    const connected = await this.waitForBridge(signal, CONNECT_WAIT_MS)
+    const connected = await this.waitForStableBridge(signal, CONNECT_WAIT_MS)
     if (!connected) {
       const status = await this.status()
       const hostReady = status.host?.extensionReady === true
@@ -736,6 +765,28 @@ export class BrowserRuntime {
         + '装好后扩展会自动连接, 无需重启 dsh.',
       )
     }
+  }
+
+  /**
+   * 等桥连上, 并确认它已经稳定.
+   *
+   * 与 waitForBridge 的分工: 后者回答"现在连没连上" (复用现有连接时足够), 这个还要求连接
+   * 连续存在 CONNECT_SETTLE_MS, 用于刚启动完浏览器、扩展可能还在重连的时候.
+   */
+  private async waitForStableBridge(signal: AbortSignal, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + Math.max(timeoutMs, CONNECT_SETTLE_MS)
+    let connectedSince: number | null = null
+    while (Date.now() < deadline) {
+      if (signal.aborted) return false
+      if (this.bridge.connectionState.connected) {
+        connectedSince ??= Date.now()
+        if (Date.now() - connectedSince >= CONNECT_SETTLE_MS) return true
+      } else {
+        connectedSince = null
+      }
+      await delay(Math.min(100, Math.max(1, deadline - Date.now())), signal)
+    }
+    return false
   }
 
   /** 等桥报告已连接. */
