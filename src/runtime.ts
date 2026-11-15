@@ -42,6 +42,9 @@ const CONNECT_WAIT_MS = 12_000;
  */
 const DEFAULT_LAUNCH_COOLDOWN_MS = 60_000;
 
+/** 刚启动过的浏览器在冷却期内, 最多再给连接重连这么久 (毫秒). */
+const RECONNECT_WAIT_MS = 5_000;
+
 /**
  * 判断"该用哪个浏览器"之前, 给正在进行的握手留的宽限.
  *
@@ -210,14 +213,32 @@ export function describeBridgeError(error: unknown): string {
  * @param input 构造输入.
  * @param input.bridge 桥.
  * @param input.assertGranted 确认持有者仍被授予; 不满足时抛错.
+ * @param input.recover 连接在"判定可用"之后、真正发送之前断掉时的恢复入口; 省略则不重试.
  * @param input.onClose 资源被释放时的回调.
  * @returns 资源与其释放入口.
  */
 export function makeResource(input: {
   bridge: BridgeServer
   assertGranted: () => void
+  recover?: () => Promise<void>
   onClose: () => void
 }): { value: BrowserResource, close: () => Promise<void> } {
+  /**
+   * 发一帧给扩展.
+   *
+   * 单独抽出来, 是为了让"首次发送"与"恢复之后的发送"用完全相同的参数 —— 重试不能悄悄
+   * 丢掉超时设置.
+   */
+  const send = async <M extends BrowserMethod>(
+    method: M,
+    args: MethodArgs<M>,
+    callSignal: AbortSignal,
+    options: { timeoutMs?: number } | undefined,
+  ): Promise<MethodResult<M>> => input.bridge.call(method, args, {
+    signal: callSignal,
+    ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  })
+
   return {
     value: {
       // 标成 async 是有意的: 这样"未授予"会变成 rejected promise, 而不是同步抛出. 声明上
@@ -226,10 +247,17 @@ export function makeResource(input: {
       // 写法里变成意外抛错.
       call: async (method, args, callSignal, options) => {
         input.assertGranted()
-        return await input.bridge.call(method, args, {
-          signal: callSignal,
-          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-        })
+        try {
+          return await send(method, args, callSignal, options)
+        } catch (error) {
+          // no-binding 的含义是"这一帧根本没发出去", 所以重试不会造成重复操作. 它也正是
+          // "决定复用现有连接"与"真正发送"之间连接断掉时的表现 —— 这时重新走一遍选浏览器/
+          // 启动/等待, 再把请求原样发一次, 而不是把一句"扩展没连着 dsh"丢给调用方.
+          if (input.recover === undefined || (error as Partial<BridgeCallError>).code !== 'no-binding') throw error
+          await input.recover()
+          input.assertGranted()
+          return await send(method, args, callSignal, options)
+        }
       },
     },
     close: async () => { input.onClose() },
@@ -551,6 +579,8 @@ export class BrowserRuntime {
       // 每次调用都重新问一次"现在是否仍被授予", 而不是在构造时定下来: 资源可能在授权被
       // 转走之后还活着, 那时它必须立刻失效, 而不是继续替旧会话驱动浏览器.
       assertGranted: () => { if (this.granted !== agent) throw this.notGrantedError() },
+      // 连接在资源就绪之后断掉时, 重新确认一次: 需要启动浏览器就启动, 需要等重连就等.
+      recover: async () => { await this.ensureBrowser(signal) },
       onClose: () => {
         this.ctx.logger.info(`dsh-browser: 会话 ${agentLabel} 释放浏览器驱动权 (Chrome 保持运行)`)
       },
@@ -619,6 +649,9 @@ export class BrowserRuntime {
     // 重试只是把请求交给已经开着的那份 profile.
     if (decision.profile === 'default' && this.lastDefaultLaunchAt !== null
       && Date.now() - this.lastDefaultLaunchAt < DEFAULT_LAUNCH_COOLDOWN_MS) {
+      // 先等连接回来: 浏览器可能已经起来了, 只是扩展的 service worker 在重连. 这也是
+      // no-binding 恢复路径要走的那一步 —— 不等待就直接报错, 等于没恢复.
+      if (await this.waitForBridge(signal, RECONNECT_WAIT_MS)) return
       throw new BrowserUnavailableError(
         '刚刚已经尝试启动过 Chrome, 但扩展还没连上来, 所以不会立刻再启动一次 (那只会多开一个空窗口). '
         + '请确认扩展在 chrome://extensions 里是启用状态, 必要时点一下它的刷新按钮; '
