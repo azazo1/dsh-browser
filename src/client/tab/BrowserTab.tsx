@@ -139,7 +139,8 @@ export function BrowserTab(props: BrowserTabProps): ReactElement {
             </div>
             <div style={styles.row}>
               <span style={styles.label}>{t(status.ready ? 'ready' : 'notReady')}</span>
-              <span style={styles.value}>{status.manualSteps[0] ?? ''}</span>
+              {/* 先说"此刻该做什么", 没有待办时才退回安装步骤; 反过来会把"浏览器没启动"说成"去装扩展". */}
+              <span style={styles.value}>{status.nextSteps[0] ?? status.manualSteps[0] ?? ''}</span>
             </div>
           </div>
 

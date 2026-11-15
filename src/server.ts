@@ -122,7 +122,9 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
     pairingError: status.pairingError,
     launchArgs: status.launchArgs,
     peerUserDataDir: status.peerUserDataDir,
-    manualSteps: status.nextSteps,
+    manualSteps: host?.manualSteps ?? [],
+    // 待办与 tool 侧同一份: 界面不该自己再推一遍"下一步做什么", 否则两边迟早说法不一致.
+    nextSteps: status.nextSteps,
     // 跟 setup 同一条路: 独立 profile 开着时不要求此刻已经有扩展连着 (那可能是日常 Chrome).
     ready: status.chrome !== null && evaluateSetup({
       ...hostParts(status.host, runtime.paths),

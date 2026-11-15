@@ -141,7 +141,9 @@ export function formatStatus(
     ? `已连接${status.extensionVersion === null ? '' : ` (扩展版本 ${status.extensionVersion})`}`
     : (status.launchStandaloneChromeProfile && status.launchArgs === null
       ? '独立 profile 尚未启动 (日常 Chrome 里的连接不算)'
-      : '未连接')}`)
+      : (status.autoLaunchChrome
+        ? '未连接 (调用 browser_open 这类工具时会自动启动 Chrome, 不必先让用户改配置)'
+        : '未连接'))}`)
   const linked = extensionLinkCounts(status)
   if (status.launchStandaloneChromeProfile) {
     lines.push(`对端 profile: ${status.peerUserDataDir ?? '未探测到'}`)

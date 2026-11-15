@@ -21,6 +21,7 @@ import { writeRendezvous } from './bridge/rendezvous.js'
 import { launchChrome } from './chrome/launcher.js'
 import { ChromeNotFoundError, locateChrome } from './chrome/locate.js'
 import { assertUsableExtraArgs, resolvePaths } from './config.js'
+import { browserNextSteps } from './hints.js'
 import { evaluateSetup, hostParts } from './setup.js'
 import { extensionLinkCounts } from '../shared/status.js'
 import type { SetupStatus } from './setup.js'
@@ -102,7 +103,12 @@ export interface BrowserStatus {
   peerUserDataDir: string | null
   /** 扩展是否正在抓取 console (chrome.debugger); 未在抓取为 null. */
   consoleCapturing: { tabId: number } | null
-  /** 为了让状态可用, 需要用户或模型做什么. */
+  /**
+   * 此刻真正该做的事.
+   *
+   * 可能只是"再调用一次工具" (浏览器没启动), 也可能是"请用户去配置". 两种说反了都会让
+   * 用户白折腾, 所以它由 src/hints.ts 统一生成, 工具与界面共用.
+   */
   nextSteps: string[]
 }
 
@@ -422,10 +428,6 @@ export class BrowserRuntime {
     }
 
     const bridgeState = this.bridge.connectionState
-    const nextSteps: string[] = []
-    if (chrome === null) nextSteps.push('未找到 Google Chrome, 请在配置里填写 chromePath.')
-    if (hostError !== null) nextSteps.push(`连接组件状态无法读取: ${hostError}`)
-    else if (host !== null) nextSteps.push(...host.manualSteps)
     const standalone = this.config.launchStandaloneChromeProfile.get()
     const autoLaunch = this.config.autoLaunchChrome.get()
     const linked = extensionLinkCounts({
@@ -435,31 +437,25 @@ export class BrowserRuntime {
       profileDir: paths.profileDir,
       peerUserDataDir: bridgeState.peerUserDataDir,
     })
-    if (bridgeState.pairingError !== null) {
-      // 配对失败是当前挡住使用的原因; 再写"去装扩展"会把用户带偏.
-      nextSteps.length = 0
-      nextSteps.push(`配对没通过: ${bridgeState.pairingError}`)
-    } else if (linked) nextSteps.length = 0
-    else if (standalone && this.launchArgs === null) {
-      nextSteps.push(
-        '独立 profile 尚未启动. 第一次使用时会另开窗口, 不会复用日常 Chrome; '
-        + '请在那个窗口打开 chrome://extensions, 加载扩展产物.',
-      )
-    } else if (standalone) {
-      nextSteps.push(
-        '独立 profile 已启动但扩展还没连上来: 请在那个窗口打开 chrome://extensions, '
-        + '加载扩展产物. 日常 Chrome 里已经连上的不算.',
-      )
-    } else if (autoLaunch) {
-      // 开了自动启动就不必让用户手动开窗口, 下一步是"再调用一次工具", 而不是"去做什么".
-      nextSteps.push(
-        '扩展还没连上来. 下一次浏览器调用会先自动启动你的 Chrome (默认 profile), '
-        + '让它里面的扩展连上来; 若启动后仍然连不上, 请确认扩展在 chrome://extensions 里是启用状态.',
-      )
-    } else if (host?.manifestReady === true) {
-      nextSteps.push('连接组件已就绪但扩展还没连上来: 请确认扩展已在 chrome://extensions 中加载并启用.')
-    }
-    if (this.lastLaunchError !== null) nextSteps.push(`上次启动 Chrome 失败: ${this.lastLaunchError}`)
+    // 待办交给独立模块: 它决定模型下一步是"再调用一次工具"还是"请用户去配置", 这两者
+    // 弄反的代价是让用户白折腾一遍. 判定本身可测, 见 src/hints.ts.
+    const nextSteps = browserNextSteps({
+      chromeFound: chrome !== null,
+      hostError,
+      host: host === null
+        ? null
+        : {
+            manifestReady: host.manifestReady,
+            extensionReady: host.extensionReady,
+            manualSteps: host.manualSteps,
+          },
+      linked,
+      launchStandaloneChromeProfile: standalone,
+      autoLaunchChrome: autoLaunch,
+      launched: this.launchArgs !== null,
+      lastLaunchError: this.lastLaunchError,
+      pairingError: bridgeState.pairingError,
+    })
 
     return {
       chrome,

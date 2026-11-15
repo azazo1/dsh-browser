@@ -67,8 +67,10 @@ export interface StatusPayload {
   pairingError: string | null
   /** 本次运行使用的 Chrome 启动参数. */
   launchArgs: string[] | null
-  /** 仍需完成的步骤. */
+  /** 安装连接组件需要用户动手的步骤; 只在组件缺失时有意义. */
   manualSteps: string[]
+  /** 此刻真正该做的事; 空数组表示可以直接用. 模型与界面共用这一份, 免得各自再推一遍. */
+  nextSteps: string[]
   /** 综合判断: 现在能否直接操作页面. */
   ready: boolean
 }

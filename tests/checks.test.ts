@@ -44,6 +44,7 @@ const OK_STATUS: StatusPayload = {
   launchArgs: null,
   peerUserDataDir: null,
   manualSteps: [],
+  nextSteps: [],
   ready: true,
 }
 
