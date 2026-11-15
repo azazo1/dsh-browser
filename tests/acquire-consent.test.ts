@@ -242,13 +242,40 @@ describe('浏览器驱动权的申请与让出', () => {
 
   it('关掉 askOnAcquire 才回到静默取得', async () => {
     const approval = makeApproval('rejected')
-    const { request } = makeHarness(approval.service, false)
+    const { request, runtime } = makeHarness(approval.service, false)
     const { agent } = makeAgent('session-a')
 
     const result = await request(agent, 'browser_snapshot')
     expect(result.kind).toBe('allow')
     // 这是显式选择的行为, 前提是用户自己关掉了那个开关.
     expect(approval.asks).toHaveLength(0)
+    // 光"放行"不够: 驱动权必须真的交过去, 否则执行阶段会以"还没有取得浏览器"拒绝.
+    expect(runtime.holdsBrowser(agent)).toBe(true)
+  })
+
+  it('关掉 askOnAcquire 时, 非浏览器工具不会顺带拿到驱动权', async () => {
+    const { request, runtime } = makeHarness(makeApproval('allowed-once').service, false)
+    const { agent } = makeAgent('session-a')
+
+    // 钩子对每个工具调用都跑, 但只有浏览器工具才该占用浏览器.
+    const result = await request(agent, 'bash')
+    expect(result.kind).toBe('allow')
+    expect(runtime.holdsBrowser(agent)).toBe(false)
+  })
+
+  it('关掉 askOnAcquire 也不能把驱动权交给一个现在用不了的浏览器', async () => {
+    const { request, runtime } = makeHarness(makeApproval('allowed-once').service, false)
+    const { agent } = makeAgent('session-a')
+
+    // 没配好时仍然返回配置说明: 拿一份用不了的驱动权, 后面一样什么都做不了.
+    const result = await request(agent, 'browser_open', {}, {
+      ready: false,
+      gaps: ['dsh 侧还没填配对令牌'],
+      guide: '浏览器还没配置好, 请把步骤讲给用户.',
+    })
+    expect(result.kind).toBe('deny')
+    expect(result.reason).toContain('讲给用户')
+    expect(runtime.holdsBrowser(agent)).toBe(false)
   })
 
   it('browser_status 不申请: 它不碰浏览器', async () => {

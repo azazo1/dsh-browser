@@ -33,6 +33,8 @@ export interface SetupInput {
   bridgeConnected: boolean
   /** 是否启动 dsh 自己那份独立 profile 的 Chrome. */
   launchStandaloneChromeProfile: boolean
+  /** 扩展没连上时, 是否按需自动启动浏览器 (打开后"先启动再连接"是正常流程). */
+  autoLaunchChrome: boolean
 }
 
 /** 就绪判定结果. */
@@ -67,9 +69,10 @@ export function setupGaps(input: SetupInput): string[] {
     // 配对失败时原因本身就要讲出来, 否则用户只知道"没配好"却不知道错在哪.
     gaps.push(`配对没通过: ${input.pairingError}`)
   }
-  // "还没连上"只有在**没有别的路可走**时才算缺陷: 允许启动自带 Chrome 的情况下, 先启动再连接
-  // 就是正常的流程, 若也算缺陷, 那条路会被自己的就绪检查挡住而永远走不通.
-  if (!input.bridgeConnected && !input.launchStandaloneChromeProfile) {
+  // "还没连上"只有在**没有别的路可走**时才算缺陷: 允许启动自带 Chrome 或允许按需自动启动
+  // 浏览器的情况下, 先启动再连接就是正常的流程, 若也算缺陷, 那条路会被自己的就绪检查挡住而
+  // 永远走不通.
+  if (!input.bridgeConnected && !input.launchStandaloneChromeProfile && !input.autoLaunchChrome) {
     gaps.push('扩展还没连上来: 需要在你自己的 Chrome 里打开这个扩展 (它装在哪个 Chrome 就打开哪个), 并确认它处于启用状态')
   }
   return gaps
@@ -108,7 +111,7 @@ export function setupGuide(gaps: readonly string[], input: SetupInput): string {
       '   把令牌粘贴回 dsh 的 dsh-browser 配置页的配对令牌输入框并点「保存令牌」; ',
       '   扩展会自动重连, 面板上会显示「dsh 已接受配对」.',
     )
-  } else if (!input.bridgeConnected && !input.launchStandaloneChromeProfile) {
+  } else if (!input.bridgeConnected && !input.launchStandaloneChromeProfile && !input.autoLaunchChrome) {
     lines.push('3. 打开你安装了该扩展的那个 Chrome 并让它保持运行, 扩展会自动连上来.')
   }
   lines.push(

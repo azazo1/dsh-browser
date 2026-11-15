@@ -36,6 +36,7 @@ const OK_STATUS: StatusPayload = {
   boundTabId: 1391393307,
   bridgeError: null,
   launchStandaloneChromeProfile: false,
+  autoLaunchChrome: false,
   holderId: null,
   pairingConfigured: true,
   pairingError: null,
@@ -123,6 +124,8 @@ describe('配置页检查清单', () => {
     // 这条路本来就是"先启动再连接", 若算问题会让它看起来永远没就绪.
     const status = withPatch({ bridgeConnected: false, launchStandaloneChromeProfile: true })
     expect(stateOf(status, 'checkLaunch')).toBe('done')
+    // 按需自动启动同理: 扩展没连上时插件会自己把浏览器拉起来.
+    expect(stateOf(withPatch({ bridgeConnected: false, autoLaunchChrome: true }), 'checkLaunch')).toBe('done')
     expect(stateOf(withPatch({ bridgeConnected: false, launchStandaloneChromeProfile: false }), 'checkLaunch')).toBe('warning')
   })
 

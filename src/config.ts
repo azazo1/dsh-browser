@@ -47,6 +47,19 @@ export interface Config {
    */
   launchStandaloneChromeProfile: Volatile<boolean>
   /**
+   * 扩展还没连上时, 是否按需自动启动浏览器.
+   *
+   * 默认关闭. 打开之后, 浏览器工具在"扩展没连上"时不再直接拒绝, 而是先启动 Chrome 再等它
+   * 连上来. 启动哪一个跟随 launchStandaloneChromeProfile: 那个开着就起独立 profile, 否则起
+   * **用户日常那个 Chrome** (不带 --user-data-dir), 也就是扩展已经装好的那一份, 于是扩展会
+   * 自己连上来, 用户不必手动去开窗口.
+   *
+   * 启动发生在 dsh 宿主进程里, 不经过命令沙箱: 沙箱只约束 agent 的 shell 工具, 而在 macOS 上
+   * 从沙箱里拉起 Chrome.app 会直接崩溃. 这也是它必须由插件自己启动, 而不是让 agent 用 shell
+   * 命令去"帮忙打开浏览器"的原因.
+   */
+  autoLaunchChrome: Volatile<boolean>
+  /**
    * 与浏览器扩展配对的令牌的**入口**.
    *
    * 由扩展生成并在它的弹出面板里展示, 用户抄到这里. 插件读到非空值就立刻把它转移到
@@ -99,6 +112,7 @@ export const Config = Schema.object({
   extraArgs: Schema.array(Schema.string()).default([]).volatile(),
   askOnAcquire: Schema.boolean().default(true).volatile(),
   launchStandaloneChromeProfile: Schema.boolean().default(false).volatile(),
+  autoLaunchChrome: Schema.boolean().default(false).volatile(),
   pairingToken: Schema.string().default('').volatile(),
   installHostAutomatically: Schema.boolean().default(false).volatile(),
 })

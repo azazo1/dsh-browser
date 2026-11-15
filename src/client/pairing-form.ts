@@ -1,5 +1,5 @@
 /**
- * 插件配置卡片上的编辑表单 (独立 profile 与自动安装开关).
+ * 插件配置卡片上的编辑表单 (审批, 独立 profile, 自动启动与自动安装开关).
  *
  * 为什么必须自己接这一层: `plugins.bundle.config` 槽**不会**拿到框架给的 `form` 助手 ——
  * 对比一下就清楚, `plugins.item` 与 `plugins.row.config` 的 owner props 里都有 `form`, 而
@@ -29,8 +29,12 @@ export { ENTRY_ID } from './entry.js'
 
 /** 本页编辑的配置字段. */
 export interface PairingSettings {
+  /** 会话第一次使用浏览器前是否征求同意. */
+  askOnAcquire?: boolean
   /** 是否让 dsh 启动一份独立 profile 的 Chrome. */
   launchStandaloneChromeProfile?: boolean
+  /** 扩展没连上时是否按需自动启动浏览器. */
+  autoLaunchChrome?: boolean
   /** 是否在插件加载与会话取资源前自动同步扩展产物与连接组件. */
   installHostAutomatically?: boolean
 }
@@ -57,8 +61,12 @@ function settingsBooleanField(field: string): SettingsFieldSpec {
 
 /** 卡片渲染需要的状态. */
 export interface PairingCardState extends SettingsFormShell {
+  /** 会话首次使用审批开关的暂存状态. */
+  askOnAcquire: SettingsFieldState
   /** 独立 profile 开关的暂存状态. */
   launchStandaloneChromeProfile: SettingsFieldState
+  /** 自动启动浏览器开关的暂存状态. */
+  autoLaunchChrome: SettingsFieldState
   /** 自动安装开关的暂存状态. */
   installHostAutomatically: SettingsFieldState
 }
@@ -82,14 +90,18 @@ export class PairingFormController {
   constructor(scope: SettingsFormScope<PairingSettings>) {
     // 配对令牌刻意不在这份表单里: 令牌按设备各一份, 而配置文件常被 git 同步, 所以它
     // 的写入走配置页自己的 HTTP 接口直接落数据目录文件, 不进配置 patch (见 BrowserSettings
-    // 的令牌输入区). 这里只剩两个真正的配置开关.
+    // 的令牌输入区). 这里只剩四个真正的配置开关.
     this.form = new SettingsFormModel(scope, [
+      settingsBooleanField('askOnAcquire'),
       settingsBooleanField('launchStandaloneChromeProfile'),
+      settingsBooleanField('autoLaunchChrome'),
       settingsBooleanField('installHostAutomatically'),
     ])
     this.store = this.form.bind(() => ({
       ...this.form.shell(),
+      askOnAcquire: this.form.field('askOnAcquire'),
       launchStandaloneChromeProfile: this.form.field('launchStandaloneChromeProfile'),
+      autoLaunchChrome: this.form.field('autoLaunchChrome'),
       installHostAutomatically: this.form.field('installHostAutomatically'),
     }))
   }

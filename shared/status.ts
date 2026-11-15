@@ -52,6 +52,13 @@ export interface StatusPayload {
   bridgeError: string | null
   /** 是否允许 dsh 启动它自己那份独立 profile 的 Chrome. */
   launchStandaloneChromeProfile: boolean
+  /**
+   * 扩展没连上时, 是否按需自动启动浏览器.
+   *
+   * 启动哪一个跟随 `launchStandaloneChromeProfile`: 那个开着就起独立 profile, 否则起用户日常
+   * 那个 Chrome, 扩展装在那里, 所以能自己连上来.
+   */
+  autoLaunchChrome: boolean
   /** 当前持有浏览器驱动权的会话 id; 无人为 null. */
   holderId: string | null
   /** dsh 侧是否已经配置了配对令牌. */

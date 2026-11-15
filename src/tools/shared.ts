@@ -112,7 +112,8 @@ export function formatStatus(
   lines.push(`Chrome: ${status.chrome === null ? `未找到 (${status.chromeError ?? '未知原因'})` : `${status.chrome.path} (来源: ${status.chrome.source})`}`)
   lines.push(`持久 profile: ${status.profileDir}`)
   lines.push(`数据目录: ${status.dataDir}`)
-  if (status.launchArgs !== null) {
+  // 只有真的带了参数才值得列出来: 启动日常 Chrome 时参数本来就是空的, 打一行空的只是噪音.
+  if (status.launchArgs !== null && status.launchArgs.length > 0) {
     lines.push(`本次启动参数: ${status.launchArgs.join(' ')}`)
   }
   if (status.hostError !== null) {
@@ -127,7 +128,9 @@ export function formatStatus(
   // 而这完全由这个开关决定.
   lines.push(`浏览器启动方式: ${status.launchStandaloneChromeProfile
     ? '启动独立 profile, 不复用日常 Chrome'
-    : '不自行启动 Chrome, 只用你现有的浏览器 (launchStandaloneChromeProfile 未打开)'}`)
+    : (status.autoLaunchChrome
+      ? '扩展没连上时自动启动你的 Chrome (日常 profile); 已连上就直接复用'
+      : '不自行启动 Chrome, 只用你现有的浏览器 (launchStandaloneChromeProfile 与 autoLaunchChrome 都未打开)')}`)
   // 配对状态放在扩展连接之前: 没配对时后面所有浏览器操作都会失败, 而原因就是这个, 所以
   // 用户应当先看到它.
   lines.push(status.pairingConfigured
@@ -149,13 +152,16 @@ export function formatStatus(
   }
   lines.push(`绑定标签页: ${!linked || status.boundTabId === null ? '无' : `id=${String(status.boundTabId)}`}`)
   // 独占: 同一时刻只有一个会话能驱动这个浏览器. 这里要说清两件事 —— 现在归谁, 以及
-  // "本会话能不能直接用", 因为后者决定了下一次调用会不会弹审批.
+  // "本会话能不能直接用", 因为后者决定了下一次调用会不会弹审批 (关掉 askOnAcquire 时是
+  // 静默取得, 说明成"会弹审批"会让模型白白等一次不存在的人工确认).
   const holder = status.holderId === null ? '无会话持有' : `会话 ${status.holderId}`
   const mine = selfId === undefined
     ? ''
     : (status.holderId === selfId
         ? ' (本会话持有: 可以直接操作)'
-        : ' (本会话未持有: 下一次浏览器调用会先弹审批申请)')
+        : (status.askOnAcquire
+          ? ' (本会话未持有: 下一次浏览器调用会先弹审批申请)'
+          : ' (本会话未持有: 下一次浏览器调用会自动取得驱动权, 不弹审批)'))
   lines.push(`驱动权: ${holder}${mine}`)
   // 求值能力取决于一个只能由用户手动打开的开关, 所以这里直接说清楚, 免得模型反复试
   // browser_evaluate 才发现不能用.

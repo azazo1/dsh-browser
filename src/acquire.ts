@@ -50,6 +50,9 @@ export const BROWSER_TOOLS: ReadonlySet<string> = new Set([
  * 需要申请的情形只有一个: 这个工具要占用浏览器, 而当前会话还没被授予. 授权是"会话级"
  * 而不是"调用级", 因为每次调用都问一遍会把用户烦死, 而只问一次就足以表达"现在归谁".
  *
+ * 关掉 askOnAcquire 时这一项一律返回 false —— 那不是"什么都不用做", "先问后给"里的"给"
+ * 仍然必须发生, 见 requestBrowserAccess.
+ *
  * @param input 判定输入.
  * @returns 是否需要征求同意.
  */
@@ -142,24 +145,36 @@ export interface ApprovalLike {
  * 服务而不是返回一个 ask 决策, 正是因为需要知道答复 —— 只把决定转交出去的话, 钩子看不到
  * 结果, 也就没法做到"先问后给".
  *
+ * askOnAcquire 关掉时退回"自动放行": 不问, 但仍然要真的把驱动权交给发起的会话 (见下).
+ *
  * @param input 申请输入.
  * @returns 允许或带原因的拒绝.
  */
 export async function requestBrowserAccess(input: AcquireInput): Promise<AcquireDecision> {
-  if (!needsBrowserConsent({
-    toolName: input.toolName,
-    holdsBrowser: input.runtime.holdsBrowser(input.agent),
-    enabled: input.config.askOnAcquire.get(),
-  })) {
-    return { kind: 'allow' }
-  }
+  const holds = input.runtime.holdsBrowser(input.agent)
+  const browserTool = BROWSER_TOOLS.has(input.toolName)
 
-  // 先确认"有一条能真正用上的路", 再问用户要不要用.
+  // 先确认"有一条能真正用上的路", 再决定要不要问用户.
   //
   // 次序很重要: 没配好就问, 用户同意之后仍然什么都做不了, 而且他完全不知道缺什么 —— 那个
   // 弹窗纯粹是一次打扰. 所以这种情况直接返回配置说明, 请模型讲给用户听.
-  if (!input.setup.ready) {
+  // 这一步也先于"要不要问": 自动放行同样不该把驱动权交给一个现在根本用不了的浏览器.
+  if (browserTool && !holds && !input.setup.ready) {
     return { kind: 'deny', reason: input.setup.guide }
+  }
+
+  if (!needsBrowserConsent({
+    toolName: input.toolName,
+    holdsBrowser: holds,
+    enabled: input.config.askOnAcquire.get(),
+  })) {
+    // "不需要问"有三种来源, 只有第三种要真的做事:
+    //   - 不是浏览器工具: 什么都不做, 更不能顺手给它驱动权;
+    //   - 本会话已经持有: 授权是会话级的, 不用重复给;
+    //   - 关掉了 askOnAcquire: 这就是"自动放行", 必须真的把驱动权交过去. 只放行不给权的话,
+    //     工具会在执行阶段以"还没有取得浏览器"被拒, 开关等于没生效.
+    if (browserTool && !holds) input.runtime.grant(input.agent)
+    return { kind: 'allow' }
   }
 
   if (input.approval === undefined) {

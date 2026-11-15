@@ -7,8 +7,9 @@
  *      每行的状态有四态 (正常 / 需处理 / 配置错误 / 尚不可知), 映射见 checks.ts.
  *   3. 操作按钮 —— 安装 / 卸载连接组件, 刷新状态.
  *   4. 手动步骤 —— 必须由用户做的事 (在 chrome://extensions 里加载扩展), 写明具体路径并提供复制按钮.
- *   5. 配置表单与令牌输入 —— 表单里是独立 profile 与自动安装两个开关, 改变"用哪个 Chrome"与
- *      "要不要自动同步组件"; 配对令牌是手动步骤的最后一步, 它不进配置文件, 单独一段就地提交.
+ *   5. 配置表单与令牌输入 —— 表单里是审批, 独立 profile, 自动启动与自动同步四个开关, 分别改变
+ *      "要不要先问", "用哪个 Chrome"与"要不要自动同步组件"; 配对令牌是手动步骤的最后一步,
+ *      它不进配置文件, 单独一段就地提交.
  *   6. 细节     —— 路径, 扩展 id, 解释器, 启动参数, 排查时才需要.
  *
  * 除了表单与令牌输入, 页面上的信息都是"Host 观测到的运行时状态", 不是 profile 里的配置值,
@@ -280,6 +281,32 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
           >
             <div style={styles.switchRow}>
               <div style={styles.switchHead}>
+                <span style={styles.switchLabel}>{props.t('acquireLabel')}</span>
+                <div style={styles.switchMeta}>
+                  {pairing.askOnAcquire.overridden && (
+                    <>
+                      <span style={styles.override}>{props.t('overridden')}</span>
+                      <Button
+                        variant="ghost"
+                        disabled={!pairing.writable}
+                        onClick={() => { props.resetField('askOnAcquire') }}
+                      >
+                        {props.t('reset')}
+                      </Button>
+                    </>
+                  )}
+                  <Switch
+                    checked={pairing.askOnAcquire.text === 'true'}
+                    disabled={!pairing.writable}
+                    label={props.t('acquireLabel')}
+                    onChange={(next) => { props.edit('askOnAcquire', next ? 'true' : 'false') }}
+                  />
+                </div>
+              </div>
+              <p style={styles.hint}>{props.t('acquireHint')}</p>
+            </div>
+            <div style={styles.switchRow}>
+              <div style={styles.switchHead}>
                 <span style={styles.switchLabel}>{props.t('launchLabel')}</span>
                 <div style={styles.switchMeta}>
                   {pairing.launchStandaloneChromeProfile.overridden && (
@@ -303,6 +330,32 @@ export function BrowserSettings(props: BrowserSettingsProps): ReactElement {
                 </div>
               </div>
               <p style={styles.hint}>{props.t('launchHint')}</p>
+            </div>
+            <div style={styles.switchRow}>
+              <div style={styles.switchHead}>
+                <span style={styles.switchLabel}>{props.t('autoLaunchLabel')}</span>
+                <div style={styles.switchMeta}>
+                  {pairing.autoLaunchChrome.overridden && (
+                    <>
+                      <span style={styles.override}>{props.t('overridden')}</span>
+                      <Button
+                        variant="ghost"
+                        disabled={!pairing.writable}
+                        onClick={() => { props.resetField('autoLaunchChrome') }}
+                      >
+                        {props.t('reset')}
+                      </Button>
+                    </>
+                  )}
+                  <Switch
+                    checked={pairing.autoLaunchChrome.text === 'true'}
+                    disabled={!pairing.writable}
+                    label={props.t('autoLaunchLabel')}
+                    onChange={(next) => { props.edit('autoLaunchChrome', next ? 'true' : 'false') }}
+                  />
+                </div>
+              </div>
+              <p style={styles.hint}>{props.t('autoLaunchHint')}</p>
             </div>
             <div style={styles.switchRow}>
               <div style={styles.switchHead}>

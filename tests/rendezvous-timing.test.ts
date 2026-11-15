@@ -98,22 +98,51 @@ describe('该用哪个浏览器', () => {
   it('未开独立 profile 且扩展已连接时, 复用现有浏览器', async () => {
     const { launchDecision } = await import('../src/runtime.ts')
     // 用户把扩展装在自己日常 Chrome 里时, 再起一个空 profile 的窗口只会打断他.
-    expect(launchDecision({ bridgeConnected: true, launchStandaloneChromeProfile: false })).toEqual({ kind: 'reuse' })
+    expect(launchDecision({
+      bridgeConnected: true,
+      launchStandaloneChromeProfile: false,
+      autoLaunchChrome: true,
+    })).toEqual({ kind: 'reuse' })
   })
 
   it('打开独立 profile 时始终启动, 不复用日常 Chrome', async () => {
     const { launchDecision } = await import('../src/runtime.ts')
-    expect(launchDecision({ bridgeConnected: true, launchStandaloneChromeProfile: true })).toEqual({ kind: 'launch' })
-    expect(launchDecision({ bridgeConnected: false, launchStandaloneChromeProfile: true })).toEqual({ kind: 'launch' })
+    const standalone = { kind: 'launch', profile: 'standalone' } as const
+    expect(launchDecision({
+      bridgeConnected: true,
+      launchStandaloneChromeProfile: true,
+      autoLaunchChrome: false,
+    })).toEqual(standalone)
+    expect(launchDecision({
+      bridgeConnected: false,
+      launchStandaloneChromeProfile: true,
+      autoLaunchChrome: false,
+    })).toEqual(standalone)
+  })
+
+  it('打开自动启动但未开独立 profile 时, 起的是用户日常那个 Chrome', async () => {
+    const { launchDecision } = await import('../src/runtime.ts')
+    // 这条路的用处就是让装在日常 Chrome 里的扩展自己连上来: 所以必须是不带 --user-data-dir
+    // 的那一份, 而不是 dsh 自己的独立 profile.
+    expect(launchDecision({
+      bridgeConnected: false,
+      launchStandaloneChromeProfile: false,
+      autoLaunchChrome: true,
+    })).toEqual({ kind: 'launch', profile: 'default' })
   })
 
   it('未连接且不允许自行启动时明确拒绝, 并说清下一步', async () => {
     const { launchDecision } = await import('../src/runtime.ts')
-    const decision = launchDecision({ bridgeConnected: false, launchStandaloneChromeProfile: false })
+    const decision = launchDecision({
+      bridgeConnected: false,
+      launchStandaloneChromeProfile: false,
+      autoLaunchChrome: false,
+    })
     // 默认配置就是这一种. 拒绝的理由必须可执行: 用户能做的两件事与"干等重试"完全不同.
     expect(decision.kind).toBe('refuse')
     if (decision.kind !== 'refuse') return
     expect(decision.reason).toContain('launchStandaloneChromeProfile')
+    expect(decision.reason).toContain('autoLaunchChrome')
     expect(decision.reason).toContain('chrome://extensions')
   })
 })

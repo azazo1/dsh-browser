@@ -116,6 +116,7 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
     boundTabId: status.boundTabId,
     bridgeError: status.bridgeError,
     launchStandaloneChromeProfile: status.launchStandaloneChromeProfile,
+    autoLaunchChrome: status.autoLaunchChrome,
     holderId: status.holderId,
     pairingConfigured: status.pairingConfigured,
     pairingError: status.pairingError,
@@ -129,6 +130,7 @@ async function collect(runtime: BrowserRuntime): Promise<StatusPayload> {
       pairingError: status.pairingError,
       bridgeConnected: status.bridgeConnected,
       launchStandaloneChromeProfile: status.launchStandaloneChromeProfile,
+      autoLaunchChrome: status.autoLaunchChrome,
     }).ready,
   }
 }

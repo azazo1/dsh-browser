@@ -45,6 +45,10 @@ export type BrowserSettingsKey =
   | 'tokenSaved'
   | 'launchLabel'
   | 'launchHint'
+  | 'autoLaunchLabel'
+  | 'autoLaunchHint'
+  | 'acquireLabel'
+  | 'acquireHint'
   | 'installAutoLabel'
   | 'installAutoHint'
   | 'overridden'
@@ -96,7 +100,11 @@ export const zh: Record<BrowserSettingsKey, string> = {
   tokenApply: '保存令牌',
   tokenSaved: '令牌已保存到本机数据目录, 配置文件里没有它.',
   launchLabel: '启动独立 profile 的 Chrome',
-  launchHint: '关闭时永远不自行打开 Chrome, 只用扩展已经连上的那个浏览器. 打开后 dsh 会用一份全新的独立 profile 启动 Chrome, 不再复用你日常那个窗口; 那份 profile 没有登录态, 需要单独再加载一次扩展.',
+  launchHint: '关闭时不起独立 profile, 只用扩展已经连上的那个浏览器; 是否自动启动 Chrome 由下面的"自动启动浏览器"决定. 打开后 dsh 会用一份全新的独立 profile 启动 Chrome, 不再复用你日常那个窗口; 那份 profile 没有登录态, 需要单独再加载一次扩展.',
+  autoLaunchLabel: '自动启动浏览器',
+  autoLaunchHint: '开启后, 扩展还没连上时, 下一次浏览器调用会先启动 Chrome 再等它连上来, 不必由用户手动开窗口. 启动哪个跟随上面的"启动独立 profile 的 Chrome": 那个开着就起独立 profile, 否则起你日常那个 (扩展已经装好的) Chrome. 默认关闭: 插件永远不会自行打开 Chrome.',
+  acquireLabel: '首次使用时弹审批',
+  acquireHint: '开启时, 每个会话第一次使用浏览器会弹一次审批, 由用户决定浏览器现在归哪个会话. 关闭则直接放行, 谁的会话先调用就归谁. 没有可用审批通道的部署 (无人值守) 必须关闭它, 否则浏览器工具会被拒绝.',
   installAutoLabel: '自动同步连接组件',
   installAutoHint: '开启后, 插件每次加载和每个会话开始使用浏览器前, 都会把扩展产物与 native messaging 组件同步到数据目录 (幂等). 插件升级后你只需在 chrome://extensions 里刷新一次扩展; 关闭则要手动回来点"安装连接组件".',
   overridden: '已覆盖',
@@ -149,7 +157,11 @@ export const en: Record<BrowserSettingsKey, string> = {
   tokenApply: 'Save token',
   tokenSaved: 'Token saved into the local data directory; it is not in the config file.',
   launchLabel: 'Launch a standalone Chrome profile',
-  launchHint: 'Off: never open Chrome; only reuse the browser whose extension is already connected. On: dsh launches a fresh independent profile and will not reuse your daily Chrome. That profile has no login state and needs the extension loaded once.',
+  launchHint: 'Off: no standalone profile; only reuse the browser whose extension is already connected. Whether Chrome may be launched on demand is decided by "Launch the browser automatically" below. On: dsh launches a fresh independent profile and will not reuse your daily Chrome. That profile has no login state and needs the extension loaded once.',
+  autoLaunchLabel: 'Launch the browser automatically',
+  autoLaunchHint: 'On: when the extension is not connected yet, the next browser call starts Chrome and waits for it to connect, so nobody has to open a window by hand. Which Chrome follows the standalone-profile switch above: the standalone profile when it is on, otherwise your daily Chrome (the one with the extension). Off by default: the plugin never opens Chrome on its own.',
+  acquireLabel: 'Ask before first use',
+  acquireHint: 'On: each session asks once before it first drives the browser, so the user decides who holds it. Off: granted silently to the first session that calls. A deployment without an approval channel (unattended) must turn this off, otherwise browser tools are refused.',
   installAutoLabel: 'Sync connection pieces automatically',
   installAutoHint: 'On: every plugin load and every session re-syncs the extension build and native messaging pieces into the data directory (idempotent). After a plugin upgrade you only need to reload the extension once in chrome://extensions. Off: click "Install connection pieces" manually.',
   overridden: 'Overridden',

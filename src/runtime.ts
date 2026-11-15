@@ -33,6 +33,15 @@ import type { BrowserMethod, MethodArgs, MethodResult } from '../shared/methods.
 const CONNECT_WAIT_MS = 12_000;
 
 /**
+ * 两次"启动用户日常 Chrome"之间至少隔多久.
+ *
+ * 启动日常 Chrome 时, 它已经在运行的情况下启动请求会被转交给已有实例, 并在那边新开一个窗口.
+ * 扩展没连上时调用方可能反复重试, 那就会变成一串空窗口, 所以同一个失败原因下不重复启动.
+ * 独立 profile 不受这条限制: 它的重试只是把请求交给已经开着的那份 profile.
+ */
+const DEFAULT_LAUNCH_COOLDOWN_MS = 60_000;
+
+/**
  * 判断"该用哪个浏览器"之前, 给正在进行的握手留的宽限.
  *
  * 配对校验通过之后才算 connected, 所以 socket 刚连上、hello 还在路上的那一瞬间状态是"未连接".
@@ -73,6 +82,10 @@ export interface BrowserStatus {
   userScriptsAvailable: boolean | null
   /** 是否允许 dsh 启动它自己那份独立 profile 的 Chrome. */
   launchStandaloneChromeProfile: boolean
+  /** 扩展没连上时是否按需自动启动浏览器. */
+  autoLaunchChrome: boolean
+  /** 会话第一次要占用浏览器时是否征求用户同意; 关闭时静默取得. */
+  askOnAcquire: boolean
   /** dsh 侧是否已经配置了配对令牌. */
   pairingConfigured: boolean
   /** 握手因配对失败被拒时的原因; null 表示没有发生过. */
@@ -96,30 +109,40 @@ export interface BrowserStatus {
 /**
  * 决定这次要用哪个浏览器.
  *
- * 三种结果而不是"启动/不启动"两态, 因为第三种情况必须能说出理由:
+ * 四种结果而不是"启动/不启动"两态, 因为每种情况都要能说出下一步:
  *
- *   - `launch`: 用户打开了独立 profile 开关. 这是一份与日常 Chrome 隔离的环境, 即使扩展
- *     已经在用户自己的浏览器里连着, 也不复用那个窗口 —— 打开这个开关就是选择另一份 profile.
+ *   - `launch` + `standalone`: 用户打开了独立 profile 开关. 这是一份与日常 Chrome 隔离的环境,
+ *     即使扩展已经在用户自己的浏览器里连着, 也不复用那个窗口 —— 打开这个开关就是选择另一份
+ *     profile.
  *   - `reuse`: 没开独立 profile, 且扩展已经连着桥. 这时用的就是用户日常那个 Chrome.
- *   - `refuse`: 没开独立 profile, 也没连上. 这时必须说清"下一步该做什么", 因为用户能做的
- *     事情(打开自己的 Chrome / 打开 launchStandaloneChromeProfile)与"什么都不做等重试"完全不同.
+ *   - `launch` + `default`: 没开独立 profile, 扩展没连上, 但允许按需自动启动. 起的是**用户日常
+ *     那个 Chrome** (不带 --user-data-dir), 扩展装在那里, 所以它一起来就会自己连上.
+ *   - `refuse`: 上面三条都不成立. 这时必须说清"下一步该做什么", 因为用户能做的事情与
+ *     "什么都不做等重试"完全不同.
  *
  * @param input 判定输入.
  * @param input.bridgeConnected 扩展是否已连上桥.
  * @param input.launchStandaloneChromeProfile 是否启动 dsh 自带的独立 profile Chrome.
+ * @param input.autoLaunchChrome 扩展没连上时是否按需自动启动浏览器.
  * @returns 决策结果.
  */
-export function launchDecision(input: { bridgeConnected: boolean, launchStandaloneChromeProfile: boolean }):
-  { kind: 'reuse' } | { kind: 'launch' } | { kind: 'refuse', reason: string } {
+export function launchDecision(input: {
+  bridgeConnected: boolean
+  launchStandaloneChromeProfile: boolean
+  autoLaunchChrome: boolean
+}):
+  { kind: 'reuse' } | { kind: 'launch', profile: 'standalone' | 'default' } | { kind: 'refuse', reason: string } {
   // 独立 profile 优先: 这个开关的语义就是"不要用用户日常那个 Chrome".
-  if (input.launchStandaloneChromeProfile) return { kind: 'launch' }
+  if (input.launchStandaloneChromeProfile) return { kind: 'launch', profile: 'standalone' }
   if (input.bridgeConnected) return { kind: 'reuse' }
+  if (input.autoLaunchChrome) return { kind: 'launch', profile: 'default' }
   return {
     kind: 'refuse',
-    reason: '扩展还没有连上来, 而本插件被配置为不自行启动 Chrome (launchStandaloneChromeProfile 未打开). '
+    reason: '扩展还没有连上来, 而本插件被配置为不自行启动 Chrome (launchStandaloneChromeProfile 与 autoLaunchChrome 都未打开). '
       + '这通常意味着需要用户打开他自己的那个 Chrome —— 扩展装在哪个 Chrome 里, 就打开哪个, '
       + '并确认它在 chrome://extensions 里是启用状态; 扩展连上来之后重试即可. '
-      + '如果本来就打算让 dsh 用它自己那份独立 profile 的 Chrome, 请打开配置里的 launchStandaloneChromeProfile; '
+      + '如果本来就打算让 dsh 在用之前自动把浏览器拉起来, 请打开配置里的 autoLaunchChrome; '
+      + '如果打算让 dsh 用它自己那份独立 profile 的 Chrome, 请打开 launchStandaloneChromeProfile, '
       + '注意那份 profile 需要用户单独加载一次扩展, 否则同样连不上.',
   }
 }
@@ -228,6 +251,8 @@ export class BrowserRuntime {
   private launchArgs: string[] | null = null
   private lastLaunchError: string | null = null
   private opening: Promise<void> | null = null
+  /** 上一次启动用户日常 Chrome 的时间; 用于避免同一失败原因下反复开窗口. */
+  private lastDefaultLaunchAt: number | null = null
 
   /**
    * @param ctx 插件上下文.
@@ -368,6 +393,7 @@ export class BrowserRuntime {
       pairingError: status.pairingError,
       bridgeConnected: status.bridgeConnected,
       launchStandaloneChromeProfile: this.config.launchStandaloneChromeProfile.get(),
+      autoLaunchChrome: this.config.autoLaunchChrome.get(),
     })
   }
 
@@ -401,6 +427,7 @@ export class BrowserRuntime {
     if (hostError !== null) nextSteps.push(`连接组件状态无法读取: ${hostError}`)
     else if (host !== null) nextSteps.push(...host.manualSteps)
     const standalone = this.config.launchStandaloneChromeProfile.get()
+    const autoLaunch = this.config.autoLaunchChrome.get()
     const linked = extensionLinkCounts({
       launchStandaloneChromeProfile: standalone,
       bridgeConnected: bridgeState.connected,
@@ -423,6 +450,12 @@ export class BrowserRuntime {
         '独立 profile 已启动但扩展还没连上来: 请在那个窗口打开 chrome://extensions, '
         + '加载扩展产物. 日常 Chrome 里已经连上的不算.',
       )
+    } else if (autoLaunch) {
+      // 开了自动启动就不必让用户手动开窗口, 下一步是"再调用一次工具", 而不是"去做什么".
+      nextSteps.push(
+        '扩展还没连上来. 下一次浏览器调用会先自动启动你的 Chrome (默认 profile), '
+        + '让它里面的扩展连上来; 若启动后仍然连不上, 请确认扩展在 chrome://extensions 里是启用状态.',
+      )
     } else if (host?.manifestReady === true) {
       nextSteps.push('连接组件已就绪但扩展还没连上来: 请确认扩展已在 chrome://extensions 中加载并启用.')
     }
@@ -439,6 +472,8 @@ export class BrowserRuntime {
       extensionVersion: bridgeState.extensionVersion,
       userScriptsAvailable: bridgeState.userScriptsAvailable,
       launchStandaloneChromeProfile: this.config.launchStandaloneChromeProfile.get(),
+      autoLaunchChrome: this.config.autoLaunchChrome.get(),
+      askOnAcquire: this.config.askOnAcquire.get(),
       pairingConfigured: this.storedPairingToken() !== '',
       pairingError: bridgeState.pairingError,
       boundTabId: bridgeState.boundTabId,
@@ -566,6 +601,7 @@ export class BrowserRuntime {
     const paths = this.paths
 
     const standalone = this.config.launchStandaloneChromeProfile.get()
+    const autoLaunch = this.config.autoLaunchChrome.get()
     // 复用路径才需要握手宽限: 独立 profile 不看现有连接, 等它只是把日常 Chrome 的 hello
     // 当成"已经连上".
     const bridgeConnected = standalone
@@ -574,12 +610,25 @@ export class BrowserRuntime {
     const decision = launchDecision({
       bridgeConnected,
       launchStandaloneChromeProfile: standalone,
+      autoLaunchChrome: autoLaunch,
     })
     if (decision.kind === 'reuse') {
       this.ctx.logger.info('dsh-browser: 扩展已连接, 复用用户现有的浏览器, 不启动独立 profile')
       return
     }
     if (decision.kind === 'refuse') throw new BrowserUnavailableError(decision.reason)
+
+    // 同一个"扩展连不上"的失败里不重复启动日常 Chrome: 它已经在运行时, 启动请求会被转交给
+    // 已有实例并在那边新开一个窗口, 反复重试就成了一串空窗口. 独立 profile 没有这个问题 ——
+    // 重试只是把请求交给已经开着的那份 profile.
+    if (decision.profile === 'default' && this.lastDefaultLaunchAt !== null
+      && Date.now() - this.lastDefaultLaunchAt < DEFAULT_LAUNCH_COOLDOWN_MS) {
+      throw new BrowserUnavailableError(
+        '刚刚已经尝试启动过 Chrome, 但扩展还没连上来, 所以不会立刻再启动一次 (那只会多开一个空窗口). '
+        + '请确认扩展在 chrome://extensions 里是启用状态, 必要时点一下它的刷新按钮; '
+        + '手动把浏览器打开也可以, 扩展会自动连接.',
+      )
+    }
 
     const extraArgs = this.config.extraArgs.get()
     assertUsableExtraArgs(extraArgs)
@@ -589,35 +638,50 @@ export class BrowserRuntime {
     await writeRendezvous(paths.rendezvousFile, this.ctx.webServer.port, this.bridge.token)
 
     const located = await locateChrome(this.config.chromePath.get())
+    // 独立 profile 起 dsh 自己那份; 否则起用户日常那个 (不带 --user-data-dir), 扩展已经装在
+    // 那里, 所以它一启动就会连上来 —— 这就是"自动启动浏览器"能省掉用户手动开窗口的原因.
+    const profileDir = decision.profile === 'standalone' ? paths.profileDir : null
+    const target = decision.profile === 'standalone' ? '独立 profile 的 Chrome' : 'Chrome'
+    if (decision.profile === 'default') this.lastDefaultLaunchAt = Date.now()
     let result
     try {
-      result = await launchChrome({ executable: located.path, profileDir: paths.profileDir, extraArgs })
+      result = await launchChrome({ executable: located.path, profileDir, extraArgs })
     } catch (error) {
       this.lastLaunchError = error instanceof Error ? error.message : String(error)
-      throw new BrowserUnavailableError(`自动启动 Chrome 失败: ${this.lastLaunchError}`)
+      throw new BrowserUnavailableError(`自动启动 ${target} 失败: ${this.lastLaunchError}`)
     }
     this.lastLaunchError = null
     this.launchArgs = result.args
     this.ctx.logger.info(
       result.handedOff
-        ? 'dsh-browser: 已有一个 Chrome 实例在用同一个 profile, 请求已转交给它'
-        : `dsh-browser: 已启动 Chrome (pid ${String(result.pid)})`,
+        ? (decision.profile === 'standalone'
+            ? 'dsh-browser: 已有 Chrome 实例在运行, 启动请求已转交给它 (独立 profile)'
+            : 'dsh-browser: 启动请求已交给系统, Chrome 正在启动或已在运行 (日常 profile)')
+        : `dsh-browser: 已启动 ${target} (pid ${String(result.pid)})`,
     )
 
     // 启动前日常 Chrome 可能已经连着. 那条连接必须让位, 否则下面会立刻当成"已经连上"
-    // 而开始操作用户自己的窗口.
-    if (bridgeConnected) this.bridge.dropLive('独立 profile 不复用已有连接')
+    // 而开始操作用户自己的窗口. 只有独立 profile 有这个问题: 启动日常 Chrome 的前提本来
+    // 就是"它还没连上".
+    if (decision.profile === 'standalone' && bridgeConnected) {
+      this.bridge.dropLive('独立 profile 不复用已有连接')
+    }
 
     // 扩展尚未加载时这里必然等不到; 等不到不抛错, 让调用方拿到可执行的提示而不是
     // 一个超时异常 —— 首次安装的用户正好卡在这一步.
     const connected = await this.waitForBridge(signal, CONNECT_WAIT_MS)
     if (!connected) {
       const status = await this.status()
-      const hint = status.host?.extensionReady === true
-        ? `请在独立 profile 那个窗口打开 chrome://extensions, 点"加载已解压的扩展程序", 选中 ${paths.extensionDir}. 日常 Chrome 里已经装过的不算. `
-        : '连接组件似乎还没装好, 请到本插件的配置页点「安装连接组件」. '
+      const hostReady = status.host?.extensionReady === true
+      const hint = decision.profile === 'standalone'
+        ? (hostReady
+            ? `请在独立 profile 那个窗口打开 chrome://extensions, 点"加载已解压的扩展程序", 选中 ${paths.extensionDir}. 日常 Chrome 里已经装过的不算. `
+            : '连接组件似乎还没装好, 请到本插件的配置页点「安装连接组件」. ')
+        : (hostReady
+            ? 'Chrome 已经开着, 说明装着本扩展的那个浏览器没有连过来: 请在 chrome://extensions 里确认 dsh Browser 处于启用状态, 必要时点一下它的刷新按钮. '
+            : '连接组件似乎还没装好, 请到本插件的配置页点「安装连接组件」. ')
       throw new BrowserUnavailableError(
-        `独立 profile 的 Chrome 已经启动, 但扩展没有在 ${String(CONNECT_WAIT_MS / 1_000)} 秒内连上来. `
+        `${target} 已经启动, 但扩展没有在 ${String(CONNECT_WAIT_MS / 1_000)} 秒内连上来. `
         + hint
         + '装好后扩展会自动连接, 无需重启 dsh.',
       )
